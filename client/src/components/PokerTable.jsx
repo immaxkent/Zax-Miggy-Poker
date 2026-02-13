@@ -1,0 +1,347 @@
+import { useState, useEffect } from 'react';
+import { useGame } from '../context/GameContext';
+
+const SUIT_COLORS = { s: '#e2e8f0', h: '#f87171', d: '#f87171', c: '#e2e8f0' };
+const SUIT_SYMBOLS = { s: '♠', h: '♥', d: '♦', c: '♣' };
+const RANK_DISPLAY = { T: '10', J: 'J', Q: 'Q', K: 'K', A: 'A' };
+
+function Card({ card, hidden, small }) {
+  if (!card && !hidden) return null;
+  const size = small ? 'w-8 h-12 text-xs' : 'w-14 h-20 text-sm';
+
+  if (hidden || !card) {
+    return (
+      <div className={`${size} rounded-lg flex items-center justify-center relative overflow-hidden`}
+        style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #0f2744 50%, #1e3a5f 100%)', border: '1px solid #2d5a9e', boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
+        <div style={{ width: '85%', height: '85%', border: '1px solid #2d5a9e', borderRadius: '4px',
+          backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(45,90,158,0.2) 3px, rgba(45,90,158,0.2) 4px)' }} />
+      </div>
+    );
+  }
+
+  const color = SUIT_COLORS[card.suit];
+  const rank  = RANK_DISPLAY[card.rank] || card.rank;
+
+  return (
+    <div className={`${size} rounded-lg relative overflow-hidden`}
+      style={{ background: 'linear-gradient(145deg, #ffffff 0%, #f8f8f8 100%)', border: '1px solid #ddd',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.4)', color }}>
+      <div className="absolute top-0.5 left-1 font-bold leading-none" style={{ fontFamily: 'Georgia, serif', color }}>
+        <div>{rank}</div>
+        <div style={{ fontSize: small ? '8px' : '10px' }}>{SUIT_SYMBOLS[card.suit]}</div>
+      </div>
+      <div className="absolute inset-0 flex items-center justify-center"
+        style={{ fontSize: small ? '18px' : '28px', color }}>
+        {SUIT_SYMBOLS[card.suit]}
+      </div>
+      <div className="absolute bottom-0.5 right-1 font-bold leading-none rotate-180" style={{ fontFamily: 'Georgia, serif', color }}>
+        <div>{rank}</div>
+        <div style={{ fontSize: small ? '8px' : '10px' }}>{SUIT_SYMBOLS[card.suit]}</div>
+      </div>
+    </div>
+  );
+}
+
+// Oval table felt
+function TableFelt({ children }) {
+  return (
+    <div className="relative mx-auto" style={{ width: '700px', height: '420px' }}>
+      {/* Outer rail */}
+      <div className="absolute inset-0 rounded-full"
+        style={{ background: 'linear-gradient(145deg, #8B4513, #5D2E0C)', boxShadow: '0 0 0 6px #4a1a00, 0 20px 60px rgba(0,0,0,0.8)' }} />
+      {/* Felt */}
+      <div className="absolute inset-3 rounded-full flex items-center justify-center overflow-hidden"
+        style={{ background: 'radial-gradient(ellipse at center, #1a5c2a 0%, #0d3d1a 60%, #082d12 100%)',
+          boxShadow: 'inset 0 4px 20px rgba(0,0,0,0.4)' }}>
+        {/* Logo watermark */}
+        <div className="absolute opacity-5 text-white font-bold text-6xl tracking-widest select-none pointer-events-none"
+          style={{ fontFamily: 'Georgia, serif' }}>CRYPTO POKER</div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Chip stack display
+function ChipStack({ amount, label }) {
+  return (
+    <div className="flex flex-col items-center gap-0.5">
+      <div className="relative">
+        {[...Array(Math.min(5, Math.ceil(amount / 50)))].map((_, i) => (
+          <div key={i} className="absolute" style={{
+            bottom: `${i * 3}px`, left: 0, right: 0,
+            width: '28px', height: '8px', borderRadius: '50%',
+            background: `hsl(${30 + i * 40}, 80%, 50%)`,
+            border: '1px solid rgba(0,0,0,0.3)',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.3)',
+            zIndex: i,
+          }} />
+        ))}
+        <div style={{ height: `${Math.min(5, Math.ceil(amount / 50)) * 3 + 8}px`, width: '28px' }} />
+      </div>
+      <div className="text-yellow-300 text-xs font-bold mt-1 bg-black bg-opacity-50 px-1.5 py-0.5 rounded"
+        style={{ textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
+        {amount}
+      </div>
+      {label && <div className="text-gray-400 text-xs">{label}</div>}
+    </div>
+  );
+}
+
+// Seat positions around oval table
+const SEAT_POSITIONS = [
+  { top: '5%',  left: '50%',  transform: 'translateX(-50%)' },  // top center
+  { top: '10%', left: '75%',  transform: 'translateX(-50%)' },  // top right
+  { top: '40%', left: '90%',  transform: 'translateX(-50%)' },  // right
+  { top: '70%', left: '75%',  transform: 'translateX(-50%)' },  // bottom right
+  { top: '78%', left: '50%',  transform: 'translateX(-50%)' },  // bottom center
+  { top: '70%', left: '25%',  transform: 'translateX(-50%)' },  // bottom left
+  { top: '40%', left: '10%',  transform: 'translateX(-50%)' },  // left
+  { top: '10%', left: '25%',  transform: 'translateX(-50%)' },  // top left
+  { top: '40%', left: '50%',  transform: 'translateX(-50%)' },  // center (9th)
+];
+
+function PlayerSeat({ player, position, myAddress, isAction }) {
+  const isMe = player?.address === myAddress;
+  const pos  = SEAT_POSITIONS[position];
+
+  return (
+    <div className="absolute" style={{ ...pos }}>
+      {player ? (
+        <div className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300 ${
+          isAction ? 'ring-2 ring-yellow-400 shadow-yellow-400/50 shadow-lg' : ''
+        } ${isMe ? 'bg-blue-900 bg-opacity-60' : 'bg-black bg-opacity-50'}`}
+          style={{ minWidth: '80px' }}>
+
+          {/* Avatar */}
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold
+            ${player.folded ? 'opacity-40' : ''} ${player.allIn ? 'ring-2 ring-red-500' : ''}`}
+            style={{ background: `hsl(${parseInt(player.address.slice(2, 4), 16) * 1.4}, 60%, 35%)`,
+              border: '2px solid rgba(255,255,255,0.2)' }}>
+            {player.address.slice(2, 4).toUpperCase()}
+          </div>
+
+          {/* Name */}
+          <div className="text-xs text-gray-300 font-mono" style={{ maxWidth: '70px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {isMe ? 'You' : `${player.address.slice(0, 4)}...${player.address.slice(-3)}`}
+          </div>
+
+          {/* Chips */}
+          <div className="text-yellow-300 text-xs font-bold">{player.chips} chips</div>
+
+          {/* Current bet */}
+          {player.bet > 0 && (
+            <div className="text-green-300 text-xs">Bet: {player.bet}</div>
+          )}
+
+          {/* Cards */}
+          {player.cards && (
+            <div className="flex gap-0.5 mt-1">
+              {player.cards.map((card, i) => (
+                <Card key={i} card={card} small />
+              ))}
+            </div>
+          )}
+          {player.cardCount > 0 && !player.cards && (
+            <div className="flex gap-0.5 mt-1">
+              {[...Array(player.cardCount)].map((_, i) => <Card key={i} hidden small />)}
+            </div>
+          )}
+
+          {/* Status badges */}
+          <div className="flex gap-1 flex-wrap justify-center">
+            {player.isDealer && <span className="bg-white text-black text-xs font-bold px-1 rounded">D</span>}
+            {player.folded   && <span className="bg-gray-600 text-white text-xs px-1 rounded">Fold</span>}
+            {player.allIn    && <span className="bg-red-600 text-white text-xs px-1 rounded">All-In</span>}
+            {!player.connected && <span className="bg-yellow-700 text-white text-xs px-1 rounded">Away</span>}
+          </div>
+        </div>
+      ) : (
+        <div className="w-16 h-16 rounded-full border-2 border-dashed border-gray-600 flex items-center justify-center opacity-40">
+          <span className="text-gray-500 text-xs">Empty</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Action buttons
+function ActionPanel({ gameState, myAddress, onAction }) {
+  const [raiseAmount, setRaiseAmount] = useState('');
+  const myPlayer = gameState?.players?.find(p => p.address === myAddress);
+  const isMyTurn = myPlayer?.isAction;
+
+  if (!isMyTurn || gameState.stage === 'waiting' || gameState.stage === 'showdown') return null;
+
+  const callAmount = gameState.currentBet - (myPlayer?.bet || 0);
+  const minRaise   = gameState.currentBet + gameState.config.bigBlind;
+  const canCheck   = callAmount <= 0;
+
+  return (
+    <div className="flex gap-3 items-end justify-center">
+      {/* Fold */}
+      <button onClick={() => onAction('fold')}
+        className="px-6 py-2.5 rounded-lg font-bold text-sm transition-all duration-200 hover:scale-105 active:scale-95"
+        style={{ background: 'linear-gradient(135deg, #7f1d1d, #991b1b)', border: '1px solid #ef4444',
+          color: '#fca5a5', boxShadow: '0 4px 12px rgba(239,68,68,0.3)' }}>
+        Fold
+      </button>
+
+      {/* Check / Call */}
+      {canCheck ? (
+        <button onClick={() => onAction('check')}
+          className="px-6 py-2.5 rounded-lg font-bold text-sm transition-all duration-200 hover:scale-105 active:scale-95"
+          style={{ background: 'linear-gradient(135deg, #14532d, #166534)', border: '1px solid #22c55e',
+            color: '#86efac', boxShadow: '0 4px 12px rgba(34,197,94,0.3)' }}>
+          Check
+        </button>
+      ) : (
+        <button onClick={() => onAction('call')}
+          className="px-6 py-2.5 rounded-lg font-bold text-sm transition-all duration-200 hover:scale-105 active:scale-95"
+          style={{ background: 'linear-gradient(135deg, #14532d, #166534)', border: '1px solid #22c55e',
+            color: '#86efac', boxShadow: '0 4px 12px rgba(34,197,94,0.3)' }}>
+          Call {callAmount}
+        </button>
+      )}
+
+      {/* Raise */}
+      <div className="flex flex-col gap-1">
+        <div className="flex gap-1">
+          <input type="number" min={minRaise} placeholder={`Min ${minRaise}`}
+            value={raiseAmount} onChange={e => setRaiseAmount(e.target.value)}
+            className="w-24 px-2 py-1.5 rounded-lg text-sm font-mono text-center"
+            style={{ background: '#0f172a', border: '1px solid #4b5563', color: '#e2e8f0' }} />
+          <button onClick={() => raiseAmount && onAction('raise', Number(raiseAmount))}
+            className="px-4 py-2.5 rounded-lg font-bold text-sm transition-all duration-200 hover:scale-105 active:scale-95"
+            style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)', border: '1px solid #8b5cf6',
+              color: '#c4b5fd', boxShadow: '0 4px 12px rgba(124,58,237,0.3)' }}>
+            Raise
+          </button>
+        </div>
+        {/* Quick raise buttons */}
+        <div className="flex gap-1">
+          {[minRaise, minRaise * 2, minRaise * 3].map(v => (
+            <button key={v} onClick={() => { setRaiseAmount(String(v)); }}
+              className="flex-1 text-xs py-1 rounded text-purple-300 hover:text-purple-100 transition-colors"
+              style={{ background: 'rgba(124,58,237,0.2)', border: '1px solid rgba(124,58,237,0.3)' }}>
+              {v}
+            </button>
+          ))}
+          <button onClick={() => setRaiseAmount(String(myPlayer?.chips || 0))}
+            className="flex-1 text-xs py-1 rounded text-red-300 hover:text-red-100 transition-colors"
+            style={{ background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.3)' }}>
+            All-in
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function PokerTable({ myAddress }) {
+  const { gameState, playerAction, leaveTable } = useGame();
+  const [handResult, setHandResult] = useState(null);
+  const { lastHand } = useGame();
+
+  useEffect(() => {
+    if (lastHand) {
+      setHandResult(lastHand);
+      setTimeout(() => setHandResult(null), 5000);
+    }
+  }, [lastHand]);
+
+  if (!gameState) return null;
+
+  const { players, community, pot, stage, config: tableConfig } = gameState;
+
+  // Fill seats up to maxSeats
+  const seats = Array(tableConfig?.maxSeats || 9).fill(null);
+  players.forEach((p, i) => { seats[i] = p; });
+
+  const actionPlayer = players.find(p => p.isAction);
+
+  return (
+    <div className="flex flex-col items-center gap-6">
+      {/* Table info bar */}
+      <div className="flex gap-6 items-center text-sm"
+        style={{ color: '#94a3b8' }}>
+        <span style={{ color: '#f59e0b', fontWeight: 600 }}>{tableConfig?.name || 'Table'}</span>
+        <span>Blinds: {tableConfig?.smallBlind}/{tableConfig?.bigBlind}</span>
+        <span className="capitalize px-2 py-0.5 rounded" style={{
+          background: stage === 'waiting' ? '#1e293b' : 'rgba(34,197,94,0.15)',
+          color: stage === 'waiting' ? '#64748b' : '#4ade80',
+          border: `1px solid ${stage === 'waiting' ? '#334155' : '#22c55e'}`,
+        }}>{stage}</span>
+        {actionPlayer && (
+          <span style={{ color: '#fcd34d' }}>
+            ⏳ {actionPlayer.address === myAddress ? 'Your turn!' : `${actionPlayer.address.slice(0,6)}...`}
+          </span>
+        )}
+      </div>
+
+      {/* Main table */}
+      <TableFelt>
+        {/* Community cards */}
+        <div className="absolute" style={{ top: '38%', left: '50%', transform: 'translate(-50%, -50%)' }}>
+          <div className="flex gap-2 items-center">
+            {[0,1,2,3,4].map(i => (
+              <Card key={i} card={community[i]} hidden={!community[i]} />
+            ))}
+          </div>
+        </div>
+
+        {/* Pot */}
+        {pot > 0 && (
+          <div className="absolute" style={{ top: '62%', left: '50%', transform: 'translate(-50%, -50%)' }}>
+            <div className="flex flex-col items-center gap-1">
+              <div className="text-yellow-300 font-bold text-lg"
+                style={{ textShadow: '0 0 12px rgba(251,191,36,0.8)' }}>
+                💰 {pot}
+              </div>
+              <div className="text-gray-400 text-xs">Total Pot</div>
+            </div>
+          </div>
+        )}
+
+        {/* Player seats */}
+        {seats.map((player, i) => (
+          <PlayerSeat key={i} player={player} position={i}
+            myAddress={myAddress} isAction={player?.isAction} />
+        ))}
+      </TableFelt>
+
+      {/* Action panel */}
+      <ActionPanel gameState={gameState} myAddress={myAddress}
+        onAction={(action, amount) => playerAction(action, amount).catch(console.error)} />
+
+      {/* Leave table */}
+      <button onClick={() => leaveTable()}
+        className="text-sm text-gray-500 hover:text-gray-300 transition-colors underline underline-offset-2">
+        Leave table & cash out
+      </button>
+
+      {/* Hand result overlay */}
+      {handResult && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none">
+          <div className="rounded-2xl p-6 text-center"
+            style={{ background: 'rgba(0,0,0,0.85)', border: '1px solid rgba(251,191,36,0.4)',
+              boxShadow: '0 0 40px rgba(251,191,36,0.2)', backdropFilter: 'blur(12px)' }}>
+            <div className="text-yellow-300 text-2xl font-bold mb-3">Hand Complete</div>
+            {Object.entries(handResult.results).map(([addr, { won, hand }]) => (
+              <div key={addr} className="text-sm mb-1">
+                <span className="text-gray-400">{addr.slice(0,8)}...</span>
+                {won > 0 && <span className="text-green-400 font-bold ml-2">+{won} chips</span>}
+                {hand && <span className="text-purple-300 ml-2">({hand.name})</span>}
+              </div>
+            ))}
+            {handResult.verify && (
+              <div className="mt-3 text-xs text-gray-500">
+                Server seed: <span className="font-mono text-gray-400">{handResult.verify.serverSeed?.slice(0,12)}...</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

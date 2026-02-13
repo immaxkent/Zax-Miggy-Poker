@@ -1,0 +1,31 @@
+# ── Secrets — NEVER commit these ─────────────────────────────────────
+**/.env
+**/.env.local
+**/.env.production
+
+# Keep example files
+!**/.env.example
+
+# ── Foundry ───────────────────────────────────────────────────────────
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/lib/
+
+# ── Node ─────────────────────────────────────────────────────────────
+node_modules/
+dist/
+.cache/
+
+# ── OS ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Editor ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+
+# ── Logs ─────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
