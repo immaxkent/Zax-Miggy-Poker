@@ -41,6 +41,31 @@ See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for full local and AWS deployment, vers
 - `scripts/` — `deploy-and-save.js`, `use-version.js`
 - `versions/` — Deployed addresses per network/version (e.g. `versions/anvil/1.0.1/deployment.json`)
 
+## Publishing to GitHub (or other Git host)
+
+The repo is already initialized with an initial commit. To publish:
+
+1. **Create a new repository** on GitHub (or GitLab, etc.): do **not** add a README, .gitignore, or license (this repo already has them).
+
+2. **Add the remote and push** (replace `YOUR_USERNAME` and `YOUR_REPO` with your repo path):
+
+   ```bash
+   git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
+   git branch -M main
+   git push -u origin main
+   ```
+
+   Or with SSH:
+
+   ```bash
+   git remote add origin git@github.com:YOUR_USERNAME/YOUR_REPO.git
+   git push -u origin main
+   ```
+
+3. **After clone**, others need to:
+   - Create `server/.env` and `client/.env` from your docs (never commit real `.env`).
+   - Run `forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts` in `contracts/` (requires git) so `forge build` works.
+
 ## License
 
 MIT
