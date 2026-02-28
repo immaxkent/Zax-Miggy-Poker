@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/api/game/(.*)", "destination": "http://35.179.163.69:3001/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
