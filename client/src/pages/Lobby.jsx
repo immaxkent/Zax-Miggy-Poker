@@ -5,6 +5,8 @@ import {
   SERVER_URL, SERVER_API_KEY,
   TOKEN_ADDRESS, VAULT_ADDRESS, TOKEN_DECIMALS, TOKEN_SYMBOL,
   VAULT_ABI, ERC20_ABI, CHAIN_ID, ANVIL_RPC_URL,
+  USDC_ADDRESS, USDC_DECIMALS, ZAX_MIGGY_VAULT_ADDRESS, ZAX_MIGGY_VAULT_ABI,
+  isBaseWithUsdc,
 } from '../utils/web3Config';
 import { useGame } from '../context/GameContext';
 
@@ -286,10 +288,231 @@ function DepositModal({ onClose, onDeposited }) {
   );
 }
 
+const usdcVaultReady = () => USDC_ADDRESS && ZAX_MIGGY_VAULT_ADDRESS;
+
+function CreateUsdcGameModal({ onClose, onCreated }) {
+  const { address, chainId } = useAccount();
+  const [amount, setAmount] = useState('');
+  const [step, setStep] = useState('input');
+  const [error, setError] = useState(null);
+  const [gameId, setGameId] = useState(null);
+  const { writeContractAsync } = useWriteContract();
+  const wrongNetwork = chainId != null && Number(chainId) !== CHAIN_ID;
+
+  const { data: usdcAllowance } = useReadContract({
+    address: usdcVaultReady() ? USDC_ADDRESS : undefined,
+    abi: ERC20_ABI,
+    functionName: 'allowance',
+    args: [address, ZAX_MIGGY_VAULT_ADDRESS],
+    watch: true,
+  });
+  const { data: usdcBalance } = useReadContract({
+    address: usdcVaultReady() ? USDC_ADDRESS : undefined,
+    abi: ERC20_ABI,
+    functionName: 'balanceOf',
+    args: [address],
+    watch: true,
+  });
+  const { data: nextGameIdData, refetch: refetchNextGameId } = useReadContract({
+    address: usdcVaultReady() ? ZAX_MIGGY_VAULT_ADDRESS : undefined,
+    abi: ZAX_MIGGY_VAULT_ABI,
+    functionName: 'nextGameId',
+  });
+
+  async function handleCreate() {
+    if (!amount || Number(amount) <= 0) return;
+    setError(null);
+    const raw = parseUnits(amount, USDC_DECIMALS);
+    try {
+      if (!usdcAllowance || usdcAllowance < raw) {
+        setStep('approving');
+        await writeContractAsync({
+          address: USDC_ADDRESS,
+          abi: ERC20_ABI,
+          functionName: 'approve',
+          args: [ZAX_MIGGY_VAULT_ADDRESS, raw],
+        });
+        await new Promise(r => setTimeout(r, 3000));
+      }
+      setStep('creating');
+      await writeContractAsync({
+        address: ZAX_MIGGY_VAULT_ADDRESS,
+        abi: ZAX_MIGGY_VAULT_ABI,
+        functionName: 'createGame',
+        args: [raw],
+      });
+      await new Promise(r => setTimeout(r, 4000));
+      const res = await refetchNextGameId();
+      const id = Number(res.data ?? 0) - 1;
+      setGameId(id);
+      onCreated?.(id);
+      setStep('done');
+    } catch (err) {
+      setError(err.shortMessage || err.message || 'Transaction failed');
+      setStep('input');
+    }
+  }
+
+  const balance = usdcBalance != null ? formatUnits(usdcBalance, USDC_DECIMALS) : '—';
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)' }}>
+      <div className="w-full max-w-md rounded-2xl p-6" style={{ background: '#0f172a', border: '1px solid rgba(59,130,246,0.3)', boxShadow: '0 0 60px rgba(59,130,246,0.1)' }}>
+        <div className="flex justify-between items-center mb-4">
+          <div className="text-white font-bold text-xl">Create USDC Table</div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl">✕</button>
+        </div>
+        <p className="text-gray-500 text-xs mb-3">Set the table cost in USDC. You deposit this amount to create the game; others must deposit the same to join.</p>
+        {wrongNetwork && (
+          <div className="rounded-xl p-3 mb-4 text-sm" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
+            <p className="text-red-300 font-bold">Wrong network</p>
+            <p className="text-gray-300">Switch to {CHAIN_ID === 8453 ? 'Base' : `Chain ID ${CHAIN_ID}`}.</p>
+          </div>
+        )}
+        <div className="rounded-xl p-3 mb-4 flex justify-between items-center" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <span className="text-gray-400 text-sm">Your USDC</span>
+          <span className="text-white font-mono font-bold">{balance} USDC</span>
+        </div>
+        {step !== 'done' ? (
+          <>
+            <div className="mb-4">
+              <label className="text-gray-400 text-sm block mb-2">Table cost (USDC)</label>
+              <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="e.g. 5"
+                className="w-full px-4 py-3 rounded-xl text-white font-mono text-lg" style={{ background: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', outline: 'none' }} />
+            </div>
+            {error && <div className="mb-3 text-red-400 text-sm">{error}</div>}
+            <button onClick={handleCreate} disabled={!amount || step === 'approving' || step === 'creating' || wrongNetwork}
+              className="w-full py-3.5 rounded-xl font-bold text-base disabled:opacity-40"
+              style={{ background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)', color: '#fff' }}>
+              {step === 'input' && 'Create game'}
+              {step === 'approving' && '⏳ Approving USDC...'}
+              {step === 'creating' && '⏳ Creating game...'}
+            </button>
+          </>
+        ) : (
+          <div className="rounded-xl p-4 mb-4" style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)' }}>
+            <p className="text-green-300 font-bold mb-2">Game created</p>
+            <p className="text-gray-300 text-sm">Game ID: <span className="font-mono text-white">{gameId}</span></p>
+            <p className="text-gray-500 text-xs mt-2">Share this ID so others can join. Table cost: {amount} USDC.</p>
+            <button onClick={onClose} className="w-full mt-4 py-2.5 rounded-xl font-bold text-sm text-gray-300" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)' }}>Close</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function JoinUsdcGameModal({ onClose, onJoined }) {
+  const { address, chainId } = useAccount();
+  const [gameIdInput, setGameIdInput] = useState('');
+  const [step, setStep] = useState('input');
+  const [error, setError] = useState(null);
+  const { writeContractAsync } = useWriteContract();
+  const wrongNetwork = chainId != null && Number(chainId) !== CHAIN_ID;
+
+  const gameId = gameIdInput.trim() === '' ? null : (parseInt(gameIdInput, 10) | 0);
+  const { data: gameData } = useReadContract({
+    address: usdcVaultReady() && gameId >= 0 ? ZAX_MIGGY_VAULT_ADDRESS : undefined,
+    abi: ZAX_MIGGY_VAULT_ABI,
+    functionName: 'getGame',
+    args: [BigInt(gameId)],
+  });
+
+  const [players, playerCount, depositAmount, createdAt, finished, winner] = gameData || [];
+  const depositAmountNum = depositAmount != null ? Number(formatUnits(depositAmount, USDC_DECIMALS)) : null;
+  const count = playerCount != null ? Number(playerCount) : 0;
+  const canJoin = gameData && !finished && count < 8 && depositAmount > 0n &&
+    !(Array.isArray(players) && players.some(p => p && String(p).toLowerCase() === address?.toLowerCase()));
+
+  const { data: usdcAllowance } = useReadContract({
+    address: usdcVaultReady() ? USDC_ADDRESS : undefined,
+    abi: ERC20_ABI,
+    functionName: 'allowance',
+    args: [address, ZAX_MIGGY_VAULT_ADDRESS],
+    watch: true,
+  });
+
+  async function handleJoin() {
+    if (gameId == null || gameId < 0 || !depositAmount) return;
+    setError(null);
+    try {
+      if (!usdcAllowance || usdcAllowance < depositAmount) {
+        setStep('approving');
+        await writeContractAsync({
+          address: USDC_ADDRESS,
+          abi: ERC20_ABI,
+          functionName: 'approve',
+          args: [ZAX_MIGGY_VAULT_ADDRESS, depositAmount],
+        });
+        await new Promise(r => setTimeout(r, 3000));
+      }
+      setStep('joining');
+      await writeContractAsync({
+        address: ZAX_MIGGY_VAULT_ADDRESS,
+        abi: ZAX_MIGGY_VAULT_ABI,
+        functionName: 'joinGame',
+        args: [BigInt(gameId)],
+      });
+      await new Promise(r => setTimeout(r, 4000));
+      onJoined?.();
+      onClose();
+    } catch (err) {
+      setError(err.shortMessage || err.message || 'Transaction failed');
+      setStep('input');
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)' }}>
+      <div className="w-full max-w-md rounded-2xl p-6" style={{ background: '#0f172a', border: '1px solid rgba(59,130,246,0.3)', boxShadow: '0 0 60px rgba(59,130,246,0.1)' }}>
+        <div className="flex justify-between items-center mb-4">
+          <div className="text-white font-bold text-xl">Join USDC Table</div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl">✕</button>
+        </div>
+        <p className="text-gray-500 text-xs mb-3">Enter the game ID (from the table creator) to join. You will deposit the table cost in USDC.</p>
+        {wrongNetwork && (
+          <div className="rounded-xl p-3 mb-4 text-sm" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
+            <p className="text-red-300 font-bold">Wrong network</p>
+            <p className="text-gray-300">Switch to {CHAIN_ID === 8453 ? 'Base' : `Chain ID ${CHAIN_ID}`}.</p>
+          </div>
+        )}
+        <div className="mb-4">
+          <label className="text-gray-400 text-sm block mb-2">Game ID</label>
+          <input type="number" value={gameIdInput} onChange={e => setGameIdInput(e.target.value)} placeholder="0"
+            className="w-full px-4 py-3 rounded-xl text-white font-mono text-lg" style={{ background: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', outline: 'none' }} />
+        </div>
+        {depositAmountNum != null && (
+          <div className="rounded-xl p-3 mb-4" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-400">Table cost</span>
+              <span className="text-white font-mono">{depositAmountNum} USDC</span>
+            </div>
+            <div className="flex justify-between text-sm mt-1">
+              <span className="text-gray-400">Players</span>
+              <span className="text-white">{count}/8</span>
+            </div>
+            {finished && <p className="text-amber-400 text-xs mt-2">This game is finished.</p>}
+          </div>
+        )}
+        {error && <div className="mb-3 text-red-400 text-sm">{error}</div>}
+        <button onClick={handleJoin} disabled={!canJoin || step === 'approving' || step === 'joining' || wrongNetwork}
+          className="w-full py-3.5 rounded-xl font-bold text-base disabled:opacity-40"
+          style={{ background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)', color: '#fff' }}>
+          {step === 'input' && 'Join game'}
+          {step === 'approving' && '⏳ Approving USDC...'}
+          {step === 'joining' && '⏳ Joining...'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Lobby({ token, address }) {
   const { chips, joinTable, notifyDeposit } = useGame();
   const [tables,      setTables]      = useState({});
   const [showDeposit, setShowDeposit] = useState(false);
+  const [showCreateUsdc, setShowCreateUsdc] = useState(false);
+  const [showJoinUsdc, setShowJoinUsdc] = useState(false);
   const [joinError,   setJoinError]   = useState(null);
   const [joining,     setJoining]     = useState(null);
 
@@ -334,53 +557,117 @@ export default function Lobby({ token, address }) {
     setJoining(null);
   }
 
+  // Base + USDC: only USDC flow (buy into game → pseudo chips for gameplay)
+  const usdcOnlyMode = isBaseWithUsdc();
+
   return (
     <div className="max-w-4xl mx-auto px-6 py-8">
       {/* Header stats */}
       <div className="flex gap-4 mb-8 flex-wrap">
-        <StatBadge label="Your Chips"  value={chips.toLocaleString()}  color="#fbbf24" />
-        <StatBadge label="Address"     value={`${address.slice(0,6)}...${address.slice(-4)}`} />
-        <StatBadge label="Buy-in Fee"  value="8%"  color="#f87171" />
-        <StatBadge label="Cashout Fee" value="5%"  color="#f87171" />
-        <button onClick={() => setShowDeposit(true)}
-          className="ml-auto self-center px-5 py-2.5 rounded-xl font-bold text-sm transition-all hover:scale-105 active:scale-95"
-          style={{ background: 'linear-gradient(135deg, #b45309, #d97706)',
-            color: '#fff8e7', boxShadow: '0 4px 16px rgba(245,158,11,0.3)' }}>
-          + Buy Chips
-        </button>
+        <StatBadge label="Address" value={`${address.slice(0,6)}...${address.slice(-4)}`} />
+        {usdcOnlyMode ? (
+          <StatBadge label="Winner fee" value="10%" color="#f87171" />
+        ) : (
+          <>
+            <StatBadge label="Your Chips"  value={chips.toLocaleString()}  color="#fbbf24" />
+            <StatBadge label="Buy-in Fee"  value="8%"  color="#f87171" />
+            <StatBadge label="Cashout Fee" value="5%"  color="#f87171" />
+            <button onClick={() => setShowDeposit(true)}
+              className="ml-auto self-center px-5 py-2.5 rounded-xl font-bold text-sm transition-all hover:scale-105 active:scale-95"
+              style={{ background: 'linear-gradient(135deg, #b45309, #d97706)',
+                color: '#fff8e7', boxShadow: '0 4px 16px rgba(245,158,11,0.3)' }}>
+              + Buy Chips
+            </button>
+          </>
+        )}
       </div>
 
-      {/* Fee info banner */}
-      <div className="rounded-xl p-4 mb-8 flex gap-4 flex-wrap"
-        style={{ background: 'rgba(251,191,36,0.05)', border: '1px solid rgba(251,191,36,0.15)' }}>
-        <div className="text-sm text-gray-400">
-          <span className="text-yellow-300 font-bold">How fees work: </span>
-          8% is deducted when you buy chips. When you win a hand and cash out, 5% is deducted from your payout.
-          <strong className="text-white"> Winners always come out ahead</strong> — the net win after fees is still substantial.
-        </div>
-      </div>
+      {usdcOnlyMode ? (
+        // USDC-only: create or join a game; chips are administered per game
+        <>
+          <div className="text-white font-bold text-xl mb-4">USDC Games (Base)</div>
+          <p className="text-gray-500 text-sm mb-6">
+            Create a game with your chosen buy-in in USDC, or join an existing game by ID.
+            You deposit USDC to enter; chips are administered for gameplay. 10% fee on winner payout.
+          </p>
+          <div className="flex gap-4 flex-wrap">
+            <button onClick={() => setShowCreateUsdc(true)}
+              className="px-5 py-2.5 rounded-xl font-bold text-sm"
+              style={{ background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)', color: '#fff' }}>
+              Create game
+            </button>
+            <button onClick={() => setShowJoinUsdc(true)}
+              className="px-5 py-2.5 rounded-xl font-bold text-sm"
+              style={{ background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.5)', color: '#93c5fd' }}>
+              Join game
+            </button>
+          </div>
+        </>
+      ) : (
+        // Chip-based tables (local / PokerVault)
+        <>
+          <div className="rounded-xl p-4 mb-8 flex gap-4 flex-wrap"
+            style={{ background: 'rgba(251,191,36,0.05)', border: '1px solid rgba(251,191,36,0.15)' }}>
+            <div className="text-sm text-gray-400">
+              <span className="text-yellow-300 font-bold">How fees work: </span>
+              8% is deducted when you buy chips. When you win a hand and cash out, 5% is deducted from your payout.
+              <strong className="text-white"> Winners always come out ahead</strong> — the net win after fees is still substantial.
+            </div>
+          </div>
 
-      <div className="text-white font-bold text-xl mb-4">Choose Your Table</div>
+          <div className="text-white font-bold text-xl mb-4">Choose Your Table</div>
 
-      {joinError && (
-        <div className="mb-4 text-red-400 rounded-xl px-4 py-3 text-sm"
-          style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
-          {joinError}
-        </div>
+          {joinError && (
+            <div className="mb-4 text-red-400 rounded-xl px-4 py-3 text-sm"
+              style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
+              {joinError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
+            {Object.entries(STAKE_CONFIGS).map(([tableId]) => (
+              <TableCard key={tableId} tableId={tableId} info={tables[tableId]}
+                onJoin={handleJoin} disabled={!!joining} />
+            ))}
+          </div>
+
+          {usdcVaultReady() && (
+            <div className="mt-10 pt-8 border-t border-white/10">
+              <div className="text-white font-bold text-xl mb-4">USDC Tables (Base)</div>
+              <p className="text-gray-500 text-sm mb-4">
+                Create a table with your chosen buy-in in USDC, or join an existing game by ID. 10% fee on winner payout.
+              </p>
+              <div className="flex gap-4 flex-wrap">
+                <button onClick={() => setShowCreateUsdc(true)}
+                  className="px-5 py-2.5 rounded-xl font-bold text-sm"
+                  style={{ background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)', color: '#fff' }}>
+                  Create game
+                </button>
+                <button onClick={() => setShowJoinUsdc(true)}
+                  className="px-5 py-2.5 rounded-xl font-bold text-sm"
+                  style={{ background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.5)', color: '#93c5fd' }}>
+                  Join game
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
-
-      <div className="grid grid-cols-2 gap-4">
-        {Object.entries(STAKE_CONFIGS).map(([tableId]) => (
-          <TableCard key={tableId} tableId={tableId} info={tables[tableId]}
-            onJoin={handleJoin} disabled={!!joining} />
-        ))}
-      </div>
 
       {showDeposit && (
         <DepositModal
           onClose={() => setShowDeposit(false)}
           onDeposited={(net) => { notifyDeposit(net); setShowDeposit(false); }}
         />
+      )}
+      {showCreateUsdc && (
+        <CreateUsdcGameModal
+          onClose={() => setShowCreateUsdc(false)}
+          onCreated={() => {}}
+        />
+      )}
+      {showJoinUsdc && (
+        <JoinUsdcGameModal onClose={() => setShowJoinUsdc(false)} />
       )}
     </div>
   );
