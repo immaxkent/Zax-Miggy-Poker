@@ -184,6 +184,7 @@ export class PokerTable {
     this.handNumber = 0;
     this.deck       = null;
     this.history    = [];    // hand history for this table
+    this.firstToActIdx = -1; // first to act this betting round (must get back to them to end round)
   }
 
   // ── Seat management ─────────────────────────────────────────────────────────
@@ -210,7 +211,8 @@ export class PokerTable {
   }
 
   standUp(playerId) {
-    const idx = this.players.findIndex(p => p.id === playerId);
+    const id = (playerId || '').toLowerCase();
+    const idx = this.players.findIndex(p => (p.id || '').toLowerCase() === id);
     if (idx === -1) return 0;
     const chips = this.players[idx].chips;
     this.players.splice(idx, 1);
@@ -261,6 +263,7 @@ export class PokerTable {
 
     // Action starts left of BB (or UTG heads-up = dealer)
     this.actionIdx = (bbIdx + 1) % this.players.length;
+    this.firstToActIdx = this.actionIdx; // so we only end preflop when action returns to UTG and all have matched
 
     return {
       handNumber:  this.handNumber,
@@ -283,7 +286,8 @@ export class PokerTable {
 
   // ── Player actions ──────────────────────────────────────────────────────────
   applyAction(playerId, action, amount = 0) {
-    const pIdx  = this.players.findIndex(p => p.id === playerId);
+    const id = (playerId || '').toLowerCase();
+    const pIdx  = this.players.findIndex(p => (p.id || '').toLowerCase() === id);
     if (pIdx !== this.actionIdx) throw new Error('Not your turn');
 
     const p     = this.players[pIdx];
@@ -332,13 +336,18 @@ export class PokerTable {
 
   _advanceAction() {
     const active = this.players.filter(p => !p.folded && !p.allIn);
-    if (active.length <= 1 || this._bettingRoundComplete()) {
+    if (active.length <= 1) {
+      this._nextStage();
+      return;
+    }
+    let next = (this.actionIdx + 1) % this.players.length;
+    while (this.players[next].folded || this.players[next].allIn) {
+      next = (next + 1) % this.players.length;
+    }
+    // End betting round only when everyone has matched AND action has returned to first-to-act
+    if (this._bettingRoundComplete() && next === this.firstToActIdx) {
       this._nextStage();
     } else {
-      let next = (this.actionIdx + 1) % this.players.length;
-      while (this.players[next].folded || this.players[next].allIn) {
-        next = (next + 1) % this.players.length;
-      }
       this.actionIdx = next;
     }
   }
@@ -379,6 +388,7 @@ export class PokerTable {
       first = (first + 1) % this.players.length;
     }
     this.actionIdx = first;
+    this.firstToActIdx = first; // so we only end this street when action returns here and all have matched
   }
 
   // ── Showdown ─────────────────────────────────────────────────────────────────
@@ -455,7 +465,7 @@ export class PokerTable {
         isAction:  idx === this.actionIdx,
         cardCount: p.cards.length,
         // Only reveal your own cards (+ showdown)
-        cards:     (p.id === forPlayerId || this.stage === 'showdown') ? p.cards : null,
+        cards:     ((p.id || '').toLowerCase() === (forPlayerId || '').toLowerCase() || this.stage === 'showdown') ? p.cards : null,
       })),
     };
   }
