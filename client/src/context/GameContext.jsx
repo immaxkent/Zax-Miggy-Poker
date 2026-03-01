@@ -81,7 +81,11 @@ export function GameProvider({ children, authToken, walletAddress }) {
     return new Promise((resolve, reject) => {
       socketRef.current?.emit('leaveTable', {}, (res) => {
         if (res?.error) reject(new Error(res.error));
-        else { setGameState(null); resolve(res); }
+        else {
+          setGameState(null);
+          setNotification(null);
+          resolve(res);
+        }
       });
     });
   }, []);

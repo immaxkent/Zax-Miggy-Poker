@@ -88,22 +88,51 @@ function ChipStack({ amount, label }) {
   );
 }
 
-// Seat positions around oval table
-const SEAT_POSITIONS = [
-  { top: '5%',  left: '50%',  transform: 'translateX(-50%)' },  // top center
-  { top: '10%', left: '75%',  transform: 'translateX(-50%)' },  // top right
-  { top: '40%', left: '90%',  transform: 'translateX(-50%)' },  // right
-  { top: '70%', left: '75%',  transform: 'translateX(-50%)' },  // bottom right
-  { top: '78%', left: '50%',  transform: 'translateX(-50%)' },  // bottom center
-  { top: '70%', left: '25%',  transform: 'translateX(-50%)' },  // bottom left
-  { top: '40%', left: '10%',  transform: 'translateX(-50%)' },  // left
-  { top: '10%', left: '25%',  transform: 'translateX(-50%)' },  // top left
-  { top: '40%', left: '50%',  transform: 'translateX(-50%)' },  // center (9th)
+// Seat positions: evenly around the table. For 2 players = bottom & top; for n = evenly spaced.
+function getSeatPositions(n) {
+  if (n <= 0) return [];
+  const positions = [];
+  const centerX = 50;
+  const centerY = 50;
+  const radiusX = 42;
+  const radiusY = 38;
+  for (let i = 0; i < n; i++) {
+    const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
+    const x = centerX + radiusX * Math.cos(angle);
+    const y = centerY + radiusY * Math.sin(angle);
+    positions.push({
+      top: `${y}%`,
+      left: `${x}%`,
+      transform: 'translate(-50%, -50%)',
+    });
+  }
+  return positions;
+}
+
+const AVATAR_ICONS = ['🃏', '👤', '🎭', '🦊', '🐶', '🐱', '🦁', '🐯'];
+function getAvatarIcon(address) {
+  if (!address) return AVATAR_ICONS[0];
+  const idx = parseInt(address.slice(2, 10), 16) % AVATAR_ICONS.length;
+  return AVATAR_ICONS[idx];
+}
+
+// Legacy 9-seat positions (fallback)
+const SEAT_POSITIONS_9 = [
+  { top: '5%',  left: '50%',  transform: 'translate(-50%, -50%)' },
+  { top: '10%', left: '75%',  transform: 'translate(-50%, -50%)' },
+  { top: '40%', left: '90%',  transform: 'translate(-50%, -50%)' },
+  { top: '70%', left: '75%',  transform: 'translate(-50%, -50%)' },
+  { top: '78%', left: '50%',  transform: 'translate(-50%, -50%)' },
+  { top: '70%', left: '25%',  transform: 'translate(-50%, -50%)' },
+  { top: '40%', left: '10%',  transform: 'translate(-50%, -50%)' },
+  { top: '10%', left: '25%',  transform: 'translate(-50%, -50%)' },
+  { top: '40%', left: '50%',  transform: 'translate(-50%, -50%)' },
 ];
 
-function PlayerSeat({ player, position, myAddress, isAction }) {
+function PlayerSeat({ player, position, myAddress, isAction, seatPosition }) {
   const isMe = player?.address === myAddress;
-  const pos  = SEAT_POSITIONS[position];
+  const pos = seatPosition || SEAT_POSITIONS_9[position];
+  const icon = getAvatarIcon(player?.address);
 
   return (
     <div className="absolute" style={{ ...pos }}>
@@ -114,11 +143,11 @@ function PlayerSeat({ player, position, myAddress, isAction }) {
           style={{ minWidth: '80px' }}>
 
           {/* Avatar */}
-          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center text-2xl
             ${player.folded ? 'opacity-40' : ''} ${player.allIn ? 'ring-2 ring-red-500' : ''}`}
-            style={{ background: `hsl(${parseInt(player.address.slice(2, 4), 16) * 1.4}, 60%, 35%)`,
-              border: '2px solid rgba(255,255,255,0.2)' }}>
-            {player.address.slice(2, 4).toUpperCase()}
+            style={{ background: `hsl(${parseInt(player.address.slice(2, 4), 16) * 1.4}, 60%, 25%)`,
+              border: '2px solid rgba(255,255,255,0.3)', boxShadow: '0 4px 12px rgba(0,0,0,0.4)' }}>
+            {icon}
           </div>
 
           {/* Name */}
@@ -254,9 +283,7 @@ export default function PokerTable({ myAddress }) {
 
   const { players, community, pot, stage, config: tableConfig } = gameState;
 
-  // Fill seats up to maxSeats
-  const seats = Array(tableConfig?.maxSeats || 9).fill(null);
-  players.forEach((p, i) => { seats[i] = p; });
+  const seatPositions = getSeatPositions(players.length);
 
   const actionPlayer = players.find(p => p.isAction);
 
@@ -303,10 +330,11 @@ export default function PokerTable({ myAddress }) {
           </div>
         )}
 
-        {/* Player seats */}
-        {seats.map((player, i) => (
-          <PlayerSeat key={i} player={player} position={i}
-            myAddress={myAddress} isAction={player?.isAction} />
+        {/* Player seats - only actual players, positioned around table */}
+        {players.map((player, i) => (
+          <PlayerSeat key={player.id} player={player} position={i}
+            myAddress={myAddress} isAction={player?.isAction}
+            seatPosition={seatPositions[i]} />
         ))}
       </TableFelt>
 
@@ -317,7 +345,7 @@ export default function PokerTable({ myAddress }) {
       {/* Leave table */}
       <button onClick={() => leaveTable()}
         className="text-sm text-gray-500 hover:text-gray-300 transition-colors underline underline-offset-2">
-        Leave table & cash out
+        {gameState?.tableId?.startsWith('usdc-') ? 'Leave table' : 'Leave table & cash out'}
       </button>
 
       {/* Hand result overlay */}

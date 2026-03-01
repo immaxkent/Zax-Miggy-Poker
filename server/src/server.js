@@ -39,6 +39,7 @@ validateConfig();
 // ─── In-memory stores (replace with Redis/DB for multi-instance) ──────────────
 const players = new Map();  // address → { id, chips, tableId, nonce }
 const tables  = new Map();  // tableId → PokerTable
+const usdcStacks = new Map();  // tableId → Map<playerId, chips> (stack when they left, for rejoin)
 
 // ─── Pre-create tables for each stake level ───────────────────────────────────
 for (const [key, stakeConfig] of Object.entries(config.tables.stakes)) {
@@ -267,7 +268,11 @@ io.on('connection', (socket) => {
         console.log(`📋 USDC table created: ${tableId}`);
       }
 
-      const startingChips = 1000;
+      const stackMap = usdcStacks.get(tableId) || new Map();
+      const savedStack = stackMap.get(playerId);
+      const startingChips = savedStack != null ? savedStack : 1000;
+      if (savedStack != null) stackMap.delete(playerId);
+      usdcStacks.set(tableId, stackMap);
       player.tableId = tableId;
       const state = table.sitDown({ id: playerId, address: playerId, chips: startingChips });
 
@@ -350,8 +355,9 @@ io.on('connection', (socket) => {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function findSocket(playerId) {
+  const id = (playerId || '').toLowerCase();
   for (const [, s] of io.sockets.sockets) {
-    if (s.walletAddress === playerId) return s;
+    if ((s.walletAddress || '').toLowerCase() === id) return s;
   }
   return null;
 }
@@ -364,7 +370,11 @@ function leaveTable(playerId, socket, ack) {
 
   const refundChips = table.standUp(playerId);
   const isUsdcTable = table.id.startsWith('usdc-');
-  if (!isUsdcTable) {
+  if (isUsdcTable) {
+    const stackMap = usdcStacks.get(table.id) || new Map();
+    stackMap.set(playerId, refundChips);
+    usdcStacks.set(table.id, stackMap);
+  } else {
     player.chips += refundChips;
   }
   player.tableId = null;
