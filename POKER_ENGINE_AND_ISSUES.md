@@ -11,7 +11,7 @@
   - `PokerTable` class: `sitDown`, `standUp`, `startHand`, `applyAction`, `_advanceAction`, `_nextStage`, `_resolveShowdown`, `toPublicState`
 
 - **Client:** `client/src/components/PokerTable.jsx`  
-  - Renders state from the server (Socket.IO `gameState`). No game logic; display only.
+  - Renders state from the server (Socket.IO `gameState`). No game logic; display only. Turn and action panel update when the server broadcasts new state with `isAction` set for the current player.
 
 So the rules and flow are standard Texas Hold'em; everything is custom code in this repo.
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useGame } from '../context/GameContext';
 
+// Game logic: server/src/poker-engine.js (no external SDK). Client only renders server state. See POKER_ENGINE_AND_ISSUES.md.
 const SUIT_COLORS = { s: '#e2e8f0', h: '#f87171', d: '#f87171', c: '#e2e8f0' };
 const SUIT_SYMBOLS = { s: '♠', h: '♥', d: '♦', c: '♣' };
 const RANK_DISPLAY = { T: '10', J: 'J', Q: 'Q', K: 'K', A: 'A' };
@@ -88,31 +89,41 @@ function ChipStack({ amount, label }) {
   );
 }
 
-// Seat positions: avatar at rim of table, panel (cards/chips) offset outward. Returns { avatar, panel } in %.
+// ─── Seat layout: 8 positions at 360/8°, icon on table edge, panel outside ─────
+const SEAT_COUNT = 8;
+const DEG_PER_SEAT = 360 / SEAT_COUNT; // 45°
+const TABLE_WIDTH_PX = 700;
+const TABLE_HEIGHT_PX = 420;
+const CENTER_PCT = 50;
+const RIM_RADIUS_X_PCT = 48; // ellipse on table edge (slightly in so icon doesn’t clip)
+const RIM_RADIUS_Y_PCT = 48;
+const PANEL_HALF_DEPTH_PX = 50;
+const PANEL_OFFSET_X_PCT = (PANEL_HALF_DEPTH_PX / TABLE_WIDTH_PX) * 100;
+const PANEL_OFFSET_Y_PCT = (PANEL_HALF_DEPTH_PX / TABLE_HEIGHT_PX) * 100;
+
+function seatAngleRad(seatIndex) {
+  const deg = seatIndex * DEG_PER_SEAT;
+  return ((90 + deg) * Math.PI) / 180;
+}
+
+function getSeatLayout(seatIndex) {
+  const angle = seatAngleRad(seatIndex);
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const rimX = CENTER_PCT + RIM_RADIUS_X_PCT * cos;
+  const rimY = CENTER_PCT + RIM_RADIUS_Y_PCT * sin;
+  const panelX = CENTER_PCT + RIM_RADIUS_X_PCT * cos + PANEL_OFFSET_X_PCT * cos;
+  const panelY = CENTER_PCT + RIM_RADIUS_Y_PCT * sin + PANEL_OFFSET_Y_PCT * sin;
+  return {
+    icon: { left: `${rimX}%`, top: `${rimY}%`, transform: 'translate(-50%, -50%)' },
+    panel: { left: `${panelX}%`, top: `${panelY}%`, transform: 'translate(-50%, -50%)' },
+    angle,
+  };
+}
+
 function getSeatPositions(n) {
-  if (n <= 0) return [];
-  const centerX = 50, centerY = 50;
-  const rimRadiusX = 42, rimRadiusY = 38;
-  const panelRadiusX = 58, panelRadiusY = 52;
-  const positions = [];
-  for (let i = 0; i < n; i++) {
-    const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
-    const cos = Math.cos(angle), sin = Math.sin(angle);
-    positions.push({
-      avatar: {
-        left: `${centerX + rimRadiusX * cos}%`,
-        top:  `${centerY + rimRadiusY * sin}%`,
-        transform: 'translate(-50%, -50%)',
-      },
-      panel: {
-        left: `${centerX + panelRadiusX * cos}%`,
-        top:  `${centerY + panelRadiusY * sin}%`,
-        transform: 'translate(-50%, -50%)',
-      },
-      angle,
-    });
-  }
-  return positions;
+  const count = Math.min(Math.max(1, n), SEAT_COUNT);
+  return Array.from({ length: count }, (_, i) => getSeatLayout(i));
 }
 
 const AVATAR_ICONS = ['🃏', '👤', '🎭', '🦊', '🐶', '🐱', '🦁', '🐯'];
@@ -122,36 +133,17 @@ function getAvatarIcon(address) {
   return AVATAR_ICONS[idx];
 }
 
-// Legacy 9-seat positions (fallback) - single position for avatar
-const SEAT_POSITIONS_9 = [
-  { left: '50%',  top: '5%',  transform: 'translate(-50%, -50%)' },
-  { left: '75%',  top: '10%', transform: 'translate(-50%, -50%)' },
-  { left: '90%',  top: '40%', transform: 'translate(-50%, -50%)' },
-  { left: '75%',  top: '70%', transform: 'translate(-50%, -50%)' },
-  { left: '50%',  top: '78%', transform: 'translate(-50%, -50%)' },
-  { left: '25%',  top: '70%', transform: 'translate(-50%, -50%)' },
-  { left: '10%',  top: '40%', transform: 'translate(-50%, -50%)' },
-  { left: '25%',  top: '10%', transform: 'translate(-50%, -50%)' },
-  { left: '50%',  top: '40%', transform: 'translate(-50%, -50%)' },
-];
-
 function PlayerSeat({ player, position, myAddress, isAction, seatPosition }) {
-  const isMe = player?.address === myAddress;
+  const isMe = (player?.address || '').toLowerCase() === (myAddress || '').toLowerCase();
   const icon = getAvatarIcon(player?.address);
-  const avatarPos = seatPosition?.avatar ?? SEAT_POSITIONS_9[position];
-  const panelPos = seatPosition?.panel ?? (() => {
-    const p = SEAT_POSITIONS_9[position];
-    if (!p) return p;
-    const left = parseFloat(p.left);
-    const top = parseFloat(p.top);
-    const dx = (left - 50) * 1.2, dy = (top - 50) * 1.2;
-    return { left: `${50 + dx}%`, top: `${50 + dy}%`, transform: 'translate(-50%, -50%)' };
-  })();
+  const layout = seatPosition ?? getSeatLayout(Math.min(position, SEAT_COUNT - 1));
+  const avatarPos = layout.icon;
+  const panelPos = layout.panel;
 
   return (
     <>
-      {/* Avatar at rim of table */}
-      <div className="absolute z-10" style={avatarPos}>
+      {/* Icon on table edge; layer above table */}
+      <div className="absolute z-20" style={avatarPos}>
         {player ? (
           <div className={`w-12 h-12 rounded-full flex items-center justify-center text-2xl
             ${player.folded ? 'opacity-40' : ''} ${player.allIn ? 'ring-2 ring-red-500' : ''} ${isAction ? 'ring-2 ring-yellow-400 shadow-lg' : ''}`}
@@ -166,9 +158,9 @@ function PlayerSeat({ player, position, myAddress, isAction, seatPosition }) {
         )}
       </div>
 
-      {/* Panel off to the side: name, chips, cards, badges */}
+      {/* Info panel: inner edge on table rim, extends outward */}
       {player && (
-        <div className="absolute z-10" style={panelPos}>
+        <div className="absolute z-20" style={panelPos}>
           <div className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300 ${
             isMe ? 'bg-blue-900/70' : 'bg-black/60'
           }`} style={{ minWidth: '72px', border: '1px solid rgba(255,255,255,0.1)' }}>
@@ -205,7 +197,8 @@ function PlayerSeat({ player, position, myAddress, isAction, seatPosition }) {
 // Action buttons
 function ActionPanel({ gameState, myAddress, onAction }) {
   const [raiseAmount, setRaiseAmount] = useState('');
-  const myPlayer = gameState?.players?.find(p => p.address === myAddress);
+  const me = (myAddress || '').toLowerCase();
+  const myPlayer = gameState?.players?.find(p => (p.address || '').toLowerCase() === me);
   const isMyTurn = myPlayer?.isAction;
 
   if (!isMyTurn || gameState.stage === 'waiting' || gameState.stage === 'showdown') return null;
@@ -294,7 +287,7 @@ export default function PokerTable({ myAddress }) {
   const seatPositions = getSeatPositions(players.length);
 
   const actionPlayer = players.find(p => p.isAction);
-  const isHost = gameState.hostId === myAddress;
+  const isHost = (gameState.hostId || '').toLowerCase() === (myAddress || '').toLowerCase();
   const canStartOrTerminate = gameState.stage === 'waiting' && !gameState.gameStarted && gameState.hostId;
 
   return (
@@ -312,7 +305,7 @@ export default function PokerTable({ myAddress }) {
         }}>{stage}</span>
         {actionPlayer && (
           <span style={{ color: '#fcd34d' }}>
-            ⏳ {actionPlayer.address === myAddress ? 'Your turn!' : `${actionPlayer.address.slice(0,6)}...`}
+            ⏳ {(actionPlayer.address || '').toLowerCase() === (myAddress || '').toLowerCase() ? 'Your turn!' : `${(actionPlayer.address || '').slice(0, 6)}...`}
           </span>
         )}
       </header>
@@ -342,13 +335,15 @@ export default function PokerTable({ myAddress }) {
             </div>
           </div>
         )}
-
+      </TableFelt>
+      {/* Seat layer: icons on table edge, panels outside; same 700x420 so % aligns with table rim */}
+      <div className="absolute inset-0 overflow-visible" style={{ zIndex: 10 }}>
         {players.map((player, i) => (
           <PlayerSeat key={player.id} player={player} position={i}
             myAddress={myAddress} isAction={player?.isAction}
             seatPosition={seatPositions[i]} />
         ))}
-      </TableFelt>
+      </div>
         </div>
       </div>
 

@@ -44,6 +44,7 @@ export function GameProvider({ children, authToken, walletAddress }) {
     socket.on('gameState',   (state) => setGameState(state));
     socket.on('handStarted', (info)  => {
       setNotification({ type: 'hand', message: `Hand #${info.handNumber} starting!` });
+      setTimeout(() => setNotification(null), 3000);
     });
     socket.on('handComplete', (result) => setLastHand(result));
     socket.on('chipsUpdated', ({ chips }) => setChips(chips));
