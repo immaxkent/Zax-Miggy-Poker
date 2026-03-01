@@ -335,7 +335,7 @@ io.on('connection', (socket) => {
         // Issue withdrawal vouchers for net winners
         issueWinnerVouchers(result.results, player.tableId);
 
-        setTimeout(() => tryStartHand(table), 5000);
+        // No auto-start: host must click "Start game" for the next hand
       }
 
       ack?.({ ok: true });
