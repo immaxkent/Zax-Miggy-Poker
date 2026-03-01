@@ -45,12 +45,12 @@ function Card({ card, hidden, small }) {
 // Oval table felt
 function TableFelt({ children }) {
   return (
-    <div className="relative mx-auto" style={{ width: '700px', height: '420px' }}>
+    <div className="relative overflow-visible" style={{ width: '700px', height: '420px' }}>
       {/* Outer rail */}
       <div className="absolute inset-0 rounded-full"
         style={{ background: 'linear-gradient(145deg, #8B4513, #5D2E0C)', boxShadow: '0 0 0 6px #4a1a00, 0 20px 60px rgba(0,0,0,0.8)' }} />
       {/* Felt */}
-      <div className="absolute inset-3 rounded-full flex items-center justify-center overflow-hidden"
+      <div className="absolute inset-3 rounded-full flex items-center justify-center overflow-visible"
         style={{ background: 'radial-gradient(ellipse at center, #1a5c2a 0%, #0d3d1a 60%, #082d12 100%)',
           boxShadow: 'inset 0 4px 20px rgba(0,0,0,0.4)' }}>
         {/* Logo watermark */}
@@ -88,22 +88,28 @@ function ChipStack({ amount, label }) {
   );
 }
 
-// Seat positions: evenly around the table. For 2 players = bottom & top; for n = evenly spaced.
+// Seat positions: avatar at rim of table, panel (cards/chips) offset outward. Returns { avatar, panel } in %.
 function getSeatPositions(n) {
   if (n <= 0) return [];
+  const centerX = 50, centerY = 50;
+  const rimRadiusX = 42, rimRadiusY = 38;
+  const panelRadiusX = 58, panelRadiusY = 52;
   const positions = [];
-  const centerX = 50;
-  const centerY = 50;
-  const radiusX = 42;
-  const radiusY = 38;
   for (let i = 0; i < n; i++) {
     const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
-    const x = centerX + radiusX * Math.cos(angle);
-    const y = centerY + radiusY * Math.sin(angle);
+    const cos = Math.cos(angle), sin = Math.sin(angle);
     positions.push({
-      top: `${y}%`,
-      left: `${x}%`,
-      transform: 'translate(-50%, -50%)',
+      avatar: {
+        left: `${centerX + rimRadiusX * cos}%`,
+        top:  `${centerY + rimRadiusY * sin}%`,
+        transform: 'translate(-50%, -50%)',
+      },
+      panel: {
+        left: `${centerX + panelRadiusX * cos}%`,
+        top:  `${centerY + panelRadiusY * sin}%`,
+        transform: 'translate(-50%, -50%)',
+      },
+      angle,
     });
   }
   return positions;
@@ -116,81 +122,83 @@ function getAvatarIcon(address) {
   return AVATAR_ICONS[idx];
 }
 
-// Legacy 9-seat positions (fallback)
+// Legacy 9-seat positions (fallback) - single position for avatar
 const SEAT_POSITIONS_9 = [
-  { top: '5%',  left: '50%',  transform: 'translate(-50%, -50%)' },
-  { top: '10%', left: '75%',  transform: 'translate(-50%, -50%)' },
-  { top: '40%', left: '90%',  transform: 'translate(-50%, -50%)' },
-  { top: '70%', left: '75%',  transform: 'translate(-50%, -50%)' },
-  { top: '78%', left: '50%',  transform: 'translate(-50%, -50%)' },
-  { top: '70%', left: '25%',  transform: 'translate(-50%, -50%)' },
-  { top: '40%', left: '10%',  transform: 'translate(-50%, -50%)' },
-  { top: '10%', left: '25%',  transform: 'translate(-50%, -50%)' },
-  { top: '40%', left: '50%',  transform: 'translate(-50%, -50%)' },
+  { left: '50%',  top: '5%',  transform: 'translate(-50%, -50%)' },
+  { left: '75%',  top: '10%', transform: 'translate(-50%, -50%)' },
+  { left: '90%',  top: '40%', transform: 'translate(-50%, -50%)' },
+  { left: '75%',  top: '70%', transform: 'translate(-50%, -50%)' },
+  { left: '50%',  top: '78%', transform: 'translate(-50%, -50%)' },
+  { left: '25%',  top: '70%', transform: 'translate(-50%, -50%)' },
+  { left: '10%',  top: '40%', transform: 'translate(-50%, -50%)' },
+  { left: '25%',  top: '10%', transform: 'translate(-50%, -50%)' },
+  { left: '50%',  top: '40%', transform: 'translate(-50%, -50%)' },
 ];
 
 function PlayerSeat({ player, position, myAddress, isAction, seatPosition }) {
   const isMe = player?.address === myAddress;
-  const pos = seatPosition || SEAT_POSITIONS_9[position];
   const icon = getAvatarIcon(player?.address);
+  const avatarPos = seatPosition?.avatar ?? SEAT_POSITIONS_9[position];
+  const panelPos = seatPosition?.panel ?? (() => {
+    const p = SEAT_POSITIONS_9[position];
+    if (!p) return p;
+    const left = parseFloat(p.left);
+    const top = parseFloat(p.top);
+    const dx = (left - 50) * 1.2, dy = (top - 50) * 1.2;
+    return { left: `${50 + dx}%`, top: `${50 + dy}%`, transform: 'translate(-50%, -50%)' };
+  })();
 
   return (
-    <div className="absolute" style={{ ...pos }}>
-      {player ? (
-        <div className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300 ${
-          isAction ? 'ring-2 ring-yellow-400 shadow-yellow-400/50 shadow-lg' : ''
-        } ${isMe ? 'bg-blue-900 bg-opacity-60' : 'bg-black bg-opacity-50'}`}
-          style={{ minWidth: '80px' }}>
-
-          {/* Avatar */}
+    <>
+      {/* Avatar at rim of table */}
+      <div className="absolute z-10" style={avatarPos}>
+        {player ? (
           <div className={`w-12 h-12 rounded-full flex items-center justify-center text-2xl
-            ${player.folded ? 'opacity-40' : ''} ${player.allIn ? 'ring-2 ring-red-500' : ''}`}
-            style={{ background: `hsl(${parseInt(player.address.slice(2, 4), 16) * 1.4}, 60%, 25%)`,
+            ${player.folded ? 'opacity-40' : ''} ${player.allIn ? 'ring-2 ring-red-500' : ''} ${isAction ? 'ring-2 ring-yellow-400 shadow-lg' : ''}`}
+            style={{ background: `hsl(${parseInt((player.address || '').slice(2, 4), 16) * 1.4}, 60%, 25%)`,
               border: '2px solid rgba(255,255,255,0.3)', boxShadow: '0 4px 12px rgba(0,0,0,0.4)' }}>
             {icon}
           </div>
-
-          {/* Name */}
-          <div className="text-xs text-gray-300 font-mono" style={{ maxWidth: '70px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {isMe ? 'You' : `${player.address.slice(0, 4)}...${player.address.slice(-3)}`}
+        ) : (
+          <div className="w-12 h-12 rounded-full border-2 border-dashed border-gray-600 flex items-center justify-center opacity-40">
+            <span className="text-gray-500 text-xs">Empty</span>
           </div>
+        )}
+      </div>
 
-          {/* Chips */}
-          <div className="text-yellow-300 text-xs font-bold">{player.chips} chips</div>
-
-          {/* Current bet */}
-          {player.bet > 0 && (
-            <div className="text-green-300 text-xs">Bet: {player.bet}</div>
-          )}
-
-          {/* Cards */}
-          {player.cards && (
-            <div className="flex gap-0.5 mt-1">
-              {player.cards.map((card, i) => (
-                <Card key={i} card={card} small />
-              ))}
+      {/* Panel off to the side: name, chips, cards, badges */}
+      {player && (
+        <div className="absolute z-10" style={panelPos}>
+          <div className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300 ${
+            isMe ? 'bg-blue-900/70' : 'bg-black/60'
+          }`} style={{ minWidth: '72px', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <div className="text-xs text-gray-300 font-mono" style={{ maxWidth: '70px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {isMe ? 'You' : `${player.address.slice(0, 4)}...${player.address.slice(-3)}`}
             </div>
-          )}
-          {player.cardCount > 0 && !player.cards && (
-            <div className="flex gap-0.5 mt-1">
-              {[...Array(player.cardCount)].map((_, i) => <Card key={i} hidden small />)}
+            <div className="text-yellow-300 text-xs font-bold">{player.chips}</div>
+            {player.bet > 0 && <div className="text-green-300 text-xs">Bet: {player.bet}</div>}
+            {player.cards && player.cards.length > 0 && (
+              <div className="flex gap-0.5">
+                {player.cards.map((card, i) => (
+                  <Card key={i} card={card} small />
+                ))}
+              </div>
+            )}
+            {player.cardCount > 0 && !player.cards && (
+              <div className="flex gap-0.5">
+                {[...Array(player.cardCount)].map((_, i) => <Card key={i} hidden small />)}
+              </div>
+            )}
+            <div className="flex gap-1 flex-wrap justify-center">
+              {player.isDealer && <span className="bg-white text-black text-xs font-bold px-1 rounded">D</span>}
+              {player.folded   && <span className="bg-gray-600 text-white text-xs px-1 rounded">Fold</span>}
+              {player.allIn    && <span className="bg-red-600 text-white text-xs px-1 rounded">All-In</span>}
+              {!player.connected && <span className="bg-yellow-700 text-white text-xs px-1 rounded">Away</span>}
             </div>
-          )}
-
-          {/* Status badges */}
-          <div className="flex gap-1 flex-wrap justify-center">
-            {player.isDealer && <span className="bg-white text-black text-xs font-bold px-1 rounded">D</span>}
-            {player.folded   && <span className="bg-gray-600 text-white text-xs px-1 rounded">Fold</span>}
-            {player.allIn    && <span className="bg-red-600 text-white text-xs px-1 rounded">All-In</span>}
-            {!player.connected && <span className="bg-yellow-700 text-white text-xs px-1 rounded">Away</span>}
           </div>
-        </div>
-      ) : (
-        <div className="w-16 h-16 rounded-full border-2 border-dashed border-gray-600 flex items-center justify-center opacity-40">
-          <span className="text-gray-500 text-xs">Empty</span>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -268,7 +276,7 @@ function ActionPanel({ gameState, myAddress, onAction }) {
 }
 
 export default function PokerTable({ myAddress }) {
-  const { gameState, playerAction, leaveTable } = useGame();
+  const { gameState, playerAction, leaveTable, startGame, terminateGame } = useGame();
   const [handResult, setHandResult] = useState(null);
   const { lastHand } = useGame();
 
@@ -286,15 +294,18 @@ export default function PokerTable({ myAddress }) {
   const seatPositions = getSeatPositions(players.length);
 
   const actionPlayer = players.find(p => p.isAction);
+  const isHost = gameState.hostId === myAddress;
+  const canStartOrTerminate = gameState.stage === 'waiting' && !gameState.gameStarted && gameState.hostId;
 
   return (
-    <div className="flex flex-col items-center gap-6">
-      {/* Table info bar */}
-      <div className="flex gap-6 items-center text-sm"
-        style={{ color: '#94a3b8' }}>
+    <div className="flex flex-col min-h-screen">
+      {/* Fixed header: title + table details */}
+      <header className="flex-shrink-0 flex flex-wrap gap-4 items-center justify-center py-4 px-4 border-b"
+        style={{ borderColor: 'rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.3)' }}>
+        <span className="text-white font-bold text-lg">Poker Table</span>
         <span style={{ color: '#f59e0b', fontWeight: 600 }}>{tableConfig?.name || 'Table'}</span>
-        <span>Blinds: {tableConfig?.smallBlind}/{tableConfig?.bigBlind}</span>
-        <span className="capitalize px-2 py-0.5 rounded" style={{
+        <span className="text-gray-400 text-sm">Blinds: {tableConfig?.smallBlind}/{tableConfig?.bigBlind}</span>
+        <span className="capitalize px-2 py-0.5 rounded text-sm" style={{
           background: stage === 'waiting' ? '#1e293b' : 'rgba(34,197,94,0.15)',
           color: stage === 'waiting' ? '#64748b' : '#4ade80',
           border: `1px solid ${stage === 'waiting' ? '#334155' : '#22c55e'}`,
@@ -304,9 +315,11 @@ export default function PokerTable({ myAddress }) {
             ⏳ {actionPlayer.address === myAddress ? 'Your turn!' : `${actionPlayer.address.slice(0,6)}...`}
           </span>
         )}
-      </div>
+      </header>
 
-      {/* Main table */}
+      {/* Centered table area */}
+      <div className="flex-1 flex items-center justify-center min-h-0 py-6 overflow-auto">
+        <div className="relative overflow-visible" style={{ width: '700px', height: '420px' }}>
       <TableFelt>
         {/* Community cards */}
         <div className="absolute" style={{ top: '38%', left: '50%', transform: 'translate(-50%, -50%)' }}>
@@ -330,23 +343,46 @@ export default function PokerTable({ myAddress }) {
           </div>
         )}
 
-        {/* Player seats - only actual players, positioned around table */}
         {players.map((player, i) => (
           <PlayerSeat key={player.id} player={player} position={i}
             myAddress={myAddress} isAction={player?.isAction}
             seatPosition={seatPositions[i]} />
         ))}
       </TableFelt>
+        </div>
+      </div>
 
-      {/* Action panel */}
-      <ActionPanel gameState={gameState} myAddress={myAddress}
-        onAction={(action, amount) => playerAction(action, amount).catch(console.error)} />
-
-      {/* Leave table */}
-      <button onClick={() => leaveTable()}
-        className="text-sm text-gray-500 hover:text-gray-300 transition-colors underline underline-offset-2">
-        {gameState?.tableId?.startsWith('usdc-') ? 'Leave table' : 'Leave table & cash out'}
-      </button>
+      {/* Action panel + host controls + leave */}
+      <div className="flex-shrink-0 flex flex-col items-center gap-3 pb-6">
+        {canStartOrTerminate && (
+          <div className="flex gap-3 items-center">
+            {isHost && (
+              <>
+                <button onClick={() => startGame().catch(console.error)}
+                  disabled={!gameState?.players?.length || gameState.players.length < (tableConfig?.minPlayers ?? 2)}
+                  className="px-5 py-2.5 rounded-xl font-bold text-sm disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg, #15803d, #22c55e)', color: '#fff' }}>
+                  Start game
+                </button>
+                <button onClick={() => terminateGame().catch(console.error)}
+                  className="px-5 py-2.5 rounded-xl font-bold text-sm"
+                  style={{ background: 'rgba(239,68,68,0.2)', border: '1px solid #ef4444', color: '#fca5a5' }}>
+                  Terminate game
+                </button>
+              </>
+            )}
+            {!isHost && (
+              <p className="text-gray-400 text-sm">Waiting for host to start the game…</p>
+            )}
+          </div>
+        )}
+        <ActionPanel gameState={gameState} myAddress={myAddress}
+          onAction={(action, amount) => playerAction(action, amount).catch(console.error)} />
+        <button onClick={() => leaveTable()}
+          className="text-sm text-gray-500 hover:text-gray-300 transition-colors underline underline-offset-2">
+          {gameState?.tableId?.startsWith('usdc-') ? 'Leave table' : 'Leave table & cash out'}
+        </button>
+      </div>
 
       {/* Hand result overlay */}
       {handResult && (

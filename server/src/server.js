@@ -44,11 +44,14 @@ const usdcStacks = new Map();  // tableId → Map<playerId, chips> (stack when t
 // ─── Pre-create tables for each stake level ───────────────────────────────────
 for (const [key, stakeConfig] of Object.entries(config.tables.stakes)) {
   const tableId = `${key}-1`;
-  tables.set(tableId, new PokerTable({
+  const table = new PokerTable({
     ...stakeConfig,
     actionTimeoutSeconds:  config.tables.actionTimeoutSeconds,
     minPlayers:            stakeConfig.minPlayers || config.tables.minPlayersToStart,
-  }, tableId));
+  }, tableId);
+  table.hostId = null;
+  table.gameStarted = false;
+  tables.set(tableId, table);
   console.log(`📋 Table created: ${tableId} (${stakeConfig.name} — ${stakeConfig.bigBlind}BB)`);
 }
 
@@ -226,16 +229,15 @@ io.on('connection', (socket) => {
       // Deduct chips and sit down
       player.chips  -= buyIn;
       player.tableId = tableId;
-      const state    = table.sitDown({ id: playerId, address: playerId, chips: buyIn });
+      if (!table.hostId) table.hostId = playerId;
+      const rawState = table.sitDown({ id: playerId, address: playerId, chips: buyIn });
+      const state    = enrichState(table, rawState, playerId);
 
       socket.join(tableId);
       io.to(tableId).emit('playerJoined', { playerId, chips: buyIn });
       ack?.({ state });
 
-      // Auto-start if enough players
-      if (table.canStart() && table.stage === 'waiting') {
-        setTimeout(() => tryStartHand(table), 3000);
-      }
+      // No auto-start: host must call startGame
     } catch (err) {
       ack?.({ error: err.message });
     }
@@ -267,6 +269,8 @@ io.on('connection', (socket) => {
         }, tableId);
         tables.set(tableId, table);
         console.log(`📋 USDC table created: ${tableId}`);
+        table.hostId = null;
+        table.gameStarted = false;
       }
 
       const stackMap = usdcStacks.get(tableId) || new Map();
@@ -275,15 +279,14 @@ io.on('connection', (socket) => {
       if (savedStack != null) stackMap.delete(playerId);
       usdcStacks.set(tableId, stackMap);
       player.tableId = tableId;
-      const state = table.sitDown({ id: playerId, address: playerId, chips: startingChips });
+      if (!table.hostId) table.hostId = playerId;
+      const state = enrichState(table, table.sitDown({ id: playerId, address: playerId, chips: startingChips }), playerId);
 
       socket.join(tableId);
       io.to(tableId).emit('playerJoined', { playerId, chips: startingChips });
       ack?.({ state });
 
-      if (table.canStart() && table.stage === 'waiting') {
-        setTimeout(() => tryStartHand(table), 3000);
-      }
+      // No auto-start: host must call startGame
     } catch (err) {
       ack?.({ error: err.message });
     }
@@ -307,7 +310,7 @@ io.on('connection', (socket) => {
       table.players.forEach(p => {
         const playerSocket = findSocket(p.id);
         if (playerSocket) {
-          playerSocket.emit('gameState', table.toPublicState(p.id));
+          playerSocket.emit('gameState', enrichState(table, table.toPublicState(p.id), p.id));
         }
       });
 
@@ -336,7 +339,62 @@ io.on('connection', (socket) => {
     const player = players.get(playerId);
     if (!player?.tableId) return ack?.({ error: 'NOT_AT_TABLE' });
     const table = tables.get(player.tableId);
-    ack?.({ state: table.toPublicState(playerId) });
+    ack?.({ state: enrichState(table, table.toPublicState(playerId), playerId) });
+  });
+
+  // ── Start game (host only, waiting stage, enough players) ────────────────────
+  socket.on('startGame', (_, ack) => {
+    try {
+      const player = players.get(playerId);
+      if (!player?.tableId) return ack?.({ error: 'NOT_AT_TABLE' });
+      const table = tables.get(player.tableId);
+      if (table.stage !== 'waiting') return ack?.({ error: 'Hand already in progress' });
+      if (!table.canStart()) return ack?.({ error: 'Not enough players to start' });
+      if (table.hostId !== playerId) return ack?.({ error: 'Only the host can start the game' });
+      tryStartHand(table);
+      table.players.forEach(p => {
+        const s = findSocket(p.id);
+        if (s) s.emit('gameState', enrichState(table, table.toPublicState(p.id), p.id));
+      });
+      ack?.({ ok: true, state: enrichState(table, table.toPublicState(playerId), playerId) });
+    } catch (err) {
+      ack?.({ error: err.message });
+    }
+  });
+
+  // ── Terminate game (host only, before first hand) ────────────────────────────
+  socket.on('terminateGame', (_, ack) => {
+    try {
+      const player = players.get(playerId);
+      if (!player?.tableId) return ack?.({ error: 'NOT_AT_TABLE' });
+      const table = tables.get(player.tableId);
+      if (table.stage !== 'waiting') return ack?.({ error: 'Cannot terminate during a hand' });
+      if (table.gameStarted) return ack?.({ error: 'Game has already started; cannot terminate' });
+      if (table.hostId !== playerId) return ack?.({ error: 'Only the host can terminate the game' });
+      const tableId = table.id;
+      const isUsdc = tableId.startsWith('usdc-');
+      const stackMap = isUsdc ? (usdcStacks.get(tableId) || new Map()) : null;
+      [...table.players].forEach(p => {
+        const chips = table.standUp(p.id);
+        const pl = players.get(p.id);
+        if (pl) {
+          pl.tableId = null;
+          if (isUsdc && stackMap) stackMap.set(p.id, chips);
+          else pl.chips += chips;
+          const sock = findSocket(p.id);
+          if (sock) {
+            sock.leave(tableId);
+            sock.emit('chipsUpdated', { chips: pl.chips });
+            sock.emit('tableTerminated', {});
+          }
+        }
+      });
+      tables.delete(tableId);
+      if (isUsdc && stackMap) usdcStacks.set(tableId, stackMap);
+      ack?.({ ok: true });
+    } catch (err) {
+      ack?.({ error: err.message });
+    }
   });
 
   // ── Disconnect ────────────────────────────────────────────────────────────
@@ -355,6 +413,13 @@ io.on('connection', (socket) => {
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+function enrichState(table, state, forPlayerId) {
+  if (!state) return state;
+  state.hostId = table.hostId ?? null;
+  state.gameStarted = table.gameStarted ?? false;
+  return state;
+}
+
 function findSocket(playerId) {
   const id = (playerId || '').toLowerCase();
   for (const [, s] of io.sockets.sockets) {
@@ -388,11 +453,12 @@ function leaveTable(playerId, socket, ack) {
 
 function tryStartHand(table) {
   if (!table.canStart() || table.stage !== 'waiting') return;
+  table.gameStarted = true;
   const info = table.startHand();
   // Broadcast private hole cards to each player
   table.players.forEach(p => {
     const s = findSocket(p.id);
-    if (s) s.emit('gameState', table.toPublicState(p.id));
+    if (s) s.emit('gameState', enrichState(table, table.toPublicState(p.id), p.id));
   });
   io.to(table.id).emit('handStarted', {
     handNumber:  info.handNumber,

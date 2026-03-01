@@ -53,6 +53,10 @@ export function GameProvider({ children, authToken, walletAddress }) {
     });
     socket.on('playerJoined',   () => refreshState(socket));
     socket.on('playerLeft',     () => refreshState(socket));
+    socket.on('tableTerminated', () => {
+      setGameState(null);
+      setNotification(null);
+    });
 
     socketRef.current = socket;
 
@@ -115,6 +119,24 @@ export function GameProvider({ children, authToken, walletAddress }) {
     });
   }, []);
 
+  const startGame = useCallback(() => {
+    return new Promise((resolve, reject) => {
+      socketRef.current?.emit('startGame', {}, (res) => {
+        if (res?.error) reject(new Error(res.error));
+        else { if (res?.state) setGameState(res.state); resolve(res); }
+      });
+    });
+  }, []);
+
+  const terminateGame = useCallback(() => {
+    return new Promise((resolve, reject) => {
+      socketRef.current?.emit('terminateGame', {}, (res) => {
+        if (res?.error) reject(new Error(res.error));
+        else { setGameState(null); setNotification(null); resolve(res); }
+      });
+    });
+  }, []);
+
   const notifyDeposit = useCallback((netAmount) => {
     const socket = socketRef.current;
     if (!socket?.connected) {
@@ -130,7 +152,7 @@ export function GameProvider({ children, authToken, walletAddress }) {
     <GameContext.Provider value={{
       connected, gameState, chips, notification,
       lastHand, tables, error,
-      joinTable, joinUsdcTable, leaveTable, playerAction, notifyDeposit, refreshTableState,
+      joinTable, joinUsdcTable, leaveTable, playerAction, startGame, terminateGame, notifyDeposit, refreshTableState,
       setChips,
     }}>
       {children}
