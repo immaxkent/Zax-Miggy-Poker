@@ -33,6 +33,11 @@ On-chain poker on Base. Players deposit ERC-20 tokens, play at the table, and wi
 
 See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for full local and AWS deployment, versions, and production checklist.
 
+### Deploy frontend to Vercel
+
+- In Vercel: set **Root Directory** to **`client`** (so it builds the Vite app). The `client/vercel.json` rewrites all routes to `index.html` so you don’t get 404 on refresh or direct links.
+- The **game server** (Node/Socket.IO) must run elsewhere (e.g. Railway, Render, or AWS); set `VITE_SERVER_URL` in the client to that URL before building.
+
 ## Repo layout
 
 - `client/` — Vite + React frontend

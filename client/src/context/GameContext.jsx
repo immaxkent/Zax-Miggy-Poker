@@ -68,6 +68,15 @@ export function GameProvider({ children, authToken, walletAddress }) {
     });
   }, []);
 
+  const joinUsdcTable = useCallback((gameId) => {
+    return new Promise((resolve, reject) => {
+      socketRef.current?.emit('joinUsdcTable', { gameId }, (res) => {
+        if (res?.error) reject(new Error(res.error));
+        else { setGameState(res.state); resolve(res.state); }
+      });
+    });
+  }, []);
+
   const leaveTable = useCallback(() => {
     return new Promise((resolve, reject) => {
       socketRef.current?.emit('leaveTable', {}, (res) => {
@@ -101,7 +110,7 @@ export function GameProvider({ children, authToken, walletAddress }) {
     <GameContext.Provider value={{
       connected, gameState, chips, notification,
       lastHand, tables, error,
-      joinTable, leaveTable, playerAction, notifyDeposit,
+      joinTable, joinUsdcTable, leaveTable, playerAction, notifyDeposit,
       setChips,
     }}>
       {children}

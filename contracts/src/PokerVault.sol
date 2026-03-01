@@ -2,6 +2,8 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
+import "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
@@ -9,19 +11,19 @@ import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 /**
  * @title PokerVault
- * @notice Holds ERC-20 tokens for poker platform on Base.
- *         - Players deposit tokens to receive chips
+ * @notice Holds ERC-20 and/or ERC-1155 chips for poker platform.
+ *         - Players deposit tokens or chips to receive credits
  *         - Game server issues signed vouchers for withdrawals
- *         - Rake is taken on BUY-IN and on WINNER CASHOUT (not per pot)
- *         - Nonce system prevents replay attacks
- *         - Server identity verified on-chain via signer address
+ *         - Rake on BUY-IN and WINNER CASHOUT; nonce prevents replay
+ *         - Optional chipToken: deposit/withdraw ERC-1155 chips (per tokenId)
  */
-contract PokerVault is Ownable, ReentrancyGuard {
+contract PokerVault is Ownable, ReentrancyGuard, ERC1155Holder {
     using ECDSA for bytes32;
 
     // ─── State ───────────────────────────────────────────────────────────────
     IERC20  public immutable token;
-    address public serverSigner;          // AWS server's signing wallet
+    IERC1155 public chipToken;            // optional; address(0) = chip ops disabled
+    address public serverSigner;
     address public feeRecipient;
 
     // Fee config (basis points, 100 = 1%)
@@ -29,14 +31,19 @@ contract PokerVault is Ownable, ReentrancyGuard {
     uint256 public winnerFeeBps  = 500;   // 5% on winner cashout
     uint256 public constant MAX_FEE_BPS = 2000; // 20% hard cap
 
-    // Player chip balances (off-chain credits, tracked for emergency)
+    // ERC-20: player => balance
     mapping(address => uint256) public depositedBalance;
-    // Nonces prevent voucher replay
+    // ERC-1155: player => chipTokenId => balance
+    mapping(address => mapping(uint256 => uint256)) public depositedChips;
+    // Nonces prevent voucher replay (shared for ERC-20 and chip withdraws)
     mapping(address => mapping(uint256 => bool)) public usedNonces;
 
     // ─── Events ───────────────────────────────────────────────────────────────
     event Deposited(address indexed player, uint256 gross, uint256 net, uint256 fee);
     event Withdrawn(address indexed player, uint256 gross, uint256 net, uint256 fee, uint256 nonce);
+    event ChipsDeposited(address indexed player, uint256 indexed tokenId, uint256 gross, uint256 net, uint256 fee);
+    event ChipsWithdrawn(address indexed player, uint256 indexed tokenId, uint256 gross, uint256 net, uint256 fee, uint256 nonce);
+    event ChipTokenUpdated(address indexed oldChipToken, address indexed newChipToken);
     event ServerSignerUpdated(address indexed oldSigner, address indexed newSigner);
     event FeeConfigUpdated(uint256 buyInFeeBps, uint256 winnerFeeBps);
     event FeeRecipientUpdated(address indexed recipient);
@@ -111,6 +118,60 @@ contract PokerVault is Ownable, ReentrancyGuard {
         emit Withdrawn(msg.sender, grossAmount, net, fee, nonce);
     }
 
+    /**
+     * @notice Deposit ERC-1155 chips. Buy-in fee is deducted in chips; net credited.
+     *         chipToken must be set.
+     */
+    function depositChips(uint256 tokenId, uint256 grossAmount) external nonReentrant {
+        require(address(chipToken) != address(0), "Chip token not set");
+        require(grossAmount > 0, "Zero amount");
+
+        uint256 fee = (grossAmount * buyInFeeBps) / 10_000;
+        uint256 net = grossAmount - fee;
+
+        chipToken.safeTransferFrom(msg.sender, address(this), tokenId, grossAmount, "");
+
+        if (fee > 0) {
+            chipToken.safeTransferFrom(address(this), feeRecipient, tokenId, fee, "");
+        }
+
+        depositedChips[msg.sender][tokenId] += net;
+        emit ChipsDeposited(msg.sender, tokenId, grossAmount, net, fee);
+    }
+
+    /**
+     * @notice Withdraw chips. Server signs (player, tokenId, amount, nonce).
+     */
+    function withdrawChips(
+        uint256 tokenId,
+        uint256 grossAmount,
+        uint256 nonce,
+        bytes calldata sig
+    ) external nonReentrant {
+        require(address(chipToken) != address(0), "Chip token not set");
+        require(grossAmount > 0, "Zero amount");
+        require(!usedNonces[msg.sender][nonce], "Nonce reused");
+
+        bytes32 msgHash = _buildChipsHash(msg.sender, tokenId, grossAmount, nonce);
+        address recovered = msgHash.recover(sig);
+        require(recovered == serverSigner, "Invalid server signature");
+
+        usedNonces[msg.sender][nonce] = true;
+
+        uint256 fee = (grossAmount * winnerFeeBps) / 10_000;
+        uint256 net = grossAmount - fee;
+        require(depositedChips[msg.sender][tokenId] >= net, "Insufficient chip balance");
+
+        depositedChips[msg.sender][tokenId] -= net;
+
+        if (fee > 0) {
+            chipToken.safeTransferFrom(address(this), feeRecipient, tokenId, fee, "");
+        }
+        chipToken.safeTransferFrom(address(this), msg.sender, tokenId, net, "");
+
+        emit ChipsWithdrawn(msg.sender, tokenId, grossAmount, net, fee, nonce);
+    }
+
     // ─── Admin ────────────────────────────────────────────────────────────────
 
     function setServerSigner(address _newSigner) external onlyOwner {
@@ -131,6 +192,11 @@ contract PokerVault is Ownable, ReentrancyGuard {
         require(_recipient != address(0), "Zero address");
         feeRecipient = _recipient;
         emit FeeRecipientUpdated(_recipient);
+    }
+
+    function setChipToken(address _chipToken) external onlyOwner {
+        emit ChipTokenUpdated(address(chipToken), _chipToken);
+        chipToken = IERC1155(_chipToken);
     }
 
     // Emergency: owner can recover accidentally sent tokens (NOT the game token)
@@ -162,12 +228,58 @@ contract PokerVault is Ownable, ReentrancyGuard {
         return MessageHashUtils.toEthSignedMessageHash(raw);
     }
 
-    /// @notice Off-chain helper – returns the hash a server should sign
+    /// @notice Off-chain helper – returns the hash a server should sign (ERC-20 withdraw)
     function buildWithdrawHash(
         address player,
         uint256 amount,
         uint256 nonce
     ) external view returns (bytes32) {
         return _buildHash(player, amount, nonce);
+    }
+
+    /**
+     * @notice Hash for chip withdrawal voucher. Server signs this (EIP-191).
+     */
+    function _buildChipsHash(
+        address player,
+        uint256 tokenId,
+        uint256 amount,
+        uint256 nonce
+    ) internal view returns (bytes32) {
+        bytes32 raw = keccak256(
+            abi.encodePacked(
+                block.chainid,
+                address(this),
+                player,
+                tokenId,
+                amount,
+                nonce
+            )
+        );
+        return MessageHashUtils.toEthSignedMessageHash(raw);
+    }
+
+    /// @notice Off-chain helper – hash for chip withdraw (server signs this)
+    function buildWithdrawChipsHash(
+        address player,
+        uint256 tokenId,
+        uint256 amount,
+        uint256 nonce
+    ) external view returns (bytes32) {
+        return _buildChipsHash(player, tokenId, amount, nonce);
+    }
+
+    /// @notice Accept direct transfer of chips to vault; credits "from" (no fee).
+    function onERC1155Received(
+        address,
+        address from,
+        uint256 id,
+        uint256 value,
+        bytes memory
+    ) public virtual override returns (bytes4) {
+        if (address(chipToken) != address(0) && msg.sender == address(chipToken) && from != address(0)) {
+            depositedChips[from][id] += value;
+        }
+        return this.onERC1155Received.selector;
     }
 }

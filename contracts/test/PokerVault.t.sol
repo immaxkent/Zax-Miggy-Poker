@@ -4,6 +4,8 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import "../src/PokerVault.sol";
 import "../src/MockToken.sol";
+import "../src/ChipToken.sol";
+import "../src/MockERC721.sol";
 
 contract PokerVaultTest is Test {
     MockToken  token;
@@ -130,5 +132,53 @@ contract PokerVaultTest is Test {
         address newSigner = address(0x1234);
         vault.setServerSigner(newSigner);
         assertEq(vault.serverSigner(), newSigner);
+    }
+
+    // ── Chips (ERC-1155) ─────────────────────────────────────────────────────
+    function test_depositChips_and_withdrawChips() public {
+        ChipToken chipToken = new ChipToken("https://chip/{id}.json", 0);
+        MockERC721 nft = new MockERC721("Membership", "MEM");
+        nft.mint(player, 1);
+
+        vault.setChipToken(address(chipToken));
+        vm.prank(player);
+        chipToken.mint(address(nft), 1, 1000); // 1000 chips for NFT #1
+
+        uint256 chipId = chipToken.getTokenId(address(nft), 1);
+        vm.prank(player);
+        chipToken.setApprovalForAll(address(vault), true);
+        vm.prank(player);
+        chipToken.safeTransferFrom(player, address(vault), chipId, 1000, "");
+        assertEq(vault.depositedChips(player, chipId), 1000);
+
+        // Withdraw with server sig (tokenId in hash)
+        uint256 grossAmount = 500;
+        uint256 nonce = 100;
+        bytes32 hash = vault.buildWithdrawChipsHash(player, chipId, grossAmount, nonce);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, hash);
+        bytes memory sig = abi.encodePacked(r, s, v);
+
+        vm.prank(player);
+        vault.withdrawChips(chipId, grossAmount, nonce, sig);
+
+        uint256 fee = (grossAmount * 500) / 10_000;
+        uint256 net = grossAmount - fee;
+        assertEq(chipToken.balanceOf(player, chipId), net);
+        assertEq(vault.depositedChips(player, chipId), 1000 - net);
+    }
+
+    function test_depositChips_reverts_when_chipToken_not_set() public {
+        ChipToken chipToken = new ChipToken("https://chip/{id}.json", 0);
+        MockERC721 nft = new MockERC721("Membership", "MEM");
+        nft.mint(player, 1);
+        vm.prank(player);
+        chipToken.mint(address(nft), 1, 1000);
+        uint256 chipId = chipToken.getTokenId(address(nft), 1);
+
+        vm.prank(player);
+        chipToken.setApprovalForAll(address(vault), true);
+        vm.prank(player);
+        vm.expectRevert("Chip token not set");
+        vault.depositChips(chipId, 100);
     }
 }

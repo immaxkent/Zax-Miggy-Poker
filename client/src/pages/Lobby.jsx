@@ -404,15 +404,17 @@ function CreateUsdcGameModal({ onClose, onCreated }) {
 
 function JoinUsdcGameModal({ onClose, onJoined }) {
   const { address, chainId } = useAccount();
+  const { joinUsdcTable, connected } = useGame();
   const [gameIdInput, setGameIdInput] = useState('');
   const [step, setStep] = useState('input');
   const [error, setError] = useState(null);
+  const [goToTableLoading, setGoToTableLoading] = useState(false);
   const { writeContractAsync } = useWriteContract();
   const wrongNetwork = chainId != null && Number(chainId) !== CHAIN_ID;
 
   const gameId = gameIdInput.trim() === '' ? null : (parseInt(gameIdInput, 10) | 0);
   const validGameId = gameId != null && gameId >= 0 ? gameId : null;
-  const { data: rawGameData } = useReadContract({
+  const { data: rawGameData, error: readError } = useReadContract({
     address: usdcVaultReady() && validGameId != null ? ZAX_MIGGY_VAULT_ADDRESS : undefined,
     abi: ZAX_MIGGY_VAULT_ABI,
     functionName: 'getGame',
@@ -478,6 +480,20 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
     }
   }
 
+  async function handleGoToTable() {
+    if (validGameId == null || !connected) return;
+    setError(null);
+    setGoToTableLoading(true);
+    try {
+      await joinUsdcTable(validGameId);
+      onClose();
+    } catch (err) {
+      setError(err.message || 'Could not open table');
+    } finally {
+      setGoToTableLoading(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)' }}>
       <div className="w-full max-w-md rounded-2xl p-6" style={{ background: '#0f172a', border: '1px solid rgba(59,130,246,0.3)', boxShadow: '0 0 60px rgba(59,130,246,0.1)' }}>
@@ -506,6 +522,13 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
         {validGameId != null && depositAmountNum == null && !gameData && (
           <p className="text-gray-500 text-xs mb-3">Loading game details…</p>
         )}
+        {validGameId != null && readError && (
+          <div className="rounded-xl p-3 mb-4 text-sm" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
+            <p className="text-red-300 font-medium">Couldn’t load game</p>
+            <p className="text-gray-400 text-xs mt-1">{readError.message}</p>
+            <p className="text-amber-300 text-xs mt-2">Switch your wallet to <strong>Base</strong> network and refresh. If using WalletConnect, try MetaMask or another wallet.</p>
+          </div>
+        )}
         {validGameId != null && gameData && count === 0 && (depositAmount == null || depositAmount === 0n) && (
           <p className="text-amber-400 text-xs mb-3">No game found with this ID. Check the number and try again.</p>
         )}
@@ -532,7 +555,21 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
             {finished && <p className="text-amber-400 text-xs mt-2">This game is finished.</p>}
           </div>
         )}
-        {error && <div className="mb-3 text-red-400 text-sm">{error}</div>}
+        {(isCreator || isAlreadyInGame) && !finished && depositAmountNum != null && depositAmountNum > 0 && (
+          <button onClick={handleGoToTable} disabled={!connected || goToTableLoading}
+            className="w-full py-3 rounded-xl font-bold text-sm mb-4 disabled:opacity-50"
+            style={{ background: 'linear-gradient(135deg, #15803d, #22c55e)', color: '#fff' }}>
+            {goToTableLoading ? '⏳ Opening table…' : '🃏 Go to table'}
+          </button>
+        )}
+        {error && (
+          <div className="mb-3">
+            <div className="text-red-400 text-sm">{error}</div>
+            {(/resource|not available|unavailable/i.test(error)) && (
+              <p className="text-amber-300 text-xs mt-2">Switch your wallet to <strong>Base</strong> network, refresh the page, then try again. If using WalletConnect, try connecting with MetaMask or another wallet.</p>
+            )}
+          </div>
+        )}
         <button onClick={handleJoin} disabled={!canJoin || step === 'approving' || step === 'joining' || wrongNetwork}
           className="w-full py-3.5 rounded-xl font-bold text-base disabled:opacity-40"
           style={{ background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)', color: '#fff' }}>

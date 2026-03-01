@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { WagmiProvider }   from 'wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RainbowKitProvider, ConnectButton } from '@rainbow-me/rainbowkit';
 import '@rainbow-me/rainbowkit/styles.css';
 
-import { wagmiConfig } from './utils/web3Config';
+import { wagmiConfig, SERVER_URL } from './utils/web3Config';
 import { useAuth }     from './hooks/useAuth';
 import { GameProvider, useGame } from './context/GameContext';
 import Lobby      from './pages/Lobby';
@@ -16,8 +16,20 @@ const queryClient = new QueryClient();
 function GameApp() {
   const { token, authed, loading, authError, login, address } = useAuth();
   const { connected, gameState, notification, error: socketError } = useGame();
+  const [serverReachable, setServerReachable] = useState(null);
 
   const isAtTable = !!gameState;
+
+  // Check if game server is running when on sign-in screen
+  useEffect(() => {
+    if (!address || authed) return;
+    let cancelled = false;
+    setServerReachable(null);
+    fetch(`${SERVER_URL}/health`, { method: 'GET' })
+      .then(() => { if (!cancelled) setServerReachable(true); })
+      .catch(() => { if (!cancelled) setServerReachable(false); });
+    return () => { cancelled = true; };
+  }, [address, authed]);
 
   return (
     <div className="min-h-screen" style={{ background: '#060d1a', fontFamily: "'Outfit', sans-serif" }}>
@@ -96,13 +108,21 @@ function GameApp() {
               Sign a message with your wallet to authenticate.<br />
               No gas required — it's free.
             </p>
+            {serverReachable === false && (
+              <div className="text-amber-200 text-sm px-5 py-3 rounded-xl text-center max-w-md"
+                style={{ background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.4)' }}>
+                <strong>Game server not running.</strong> In another terminal run:<br />
+                <code className="text-white mt-1 inline-block">cd server && npm start</code><br />
+                <span className="text-gray-400 text-xs mt-1 block">Then refresh or click Sign In again.</span>
+              </div>
+            )}
             {authError && (
               <div className="text-red-400 text-sm px-4 py-2 rounded-lg"
                 style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
                 {authError}
               </div>
             )}
-            <button onClick={login} disabled={loading}
+            <button onClick={login} disabled={loading || serverReachable === false}
               className="px-8 py-3.5 rounded-xl font-bold text-base transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
               style={{ background: 'linear-gradient(135deg, #b45309, #d97706)',
                 color: '#fff8e7', boxShadow: '0 4px 20px rgba(245,158,11,0.3)' }}>

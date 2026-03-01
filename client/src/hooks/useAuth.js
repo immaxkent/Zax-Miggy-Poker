@@ -77,8 +77,9 @@ export function useAuth() {
       setAuthed(true);
       return jwt;
     } catch (err) {
+      const serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
       const message = err.message === 'Failed to fetch'
-        ? "Can't reach the game server. Is it running at " + (import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + "?"
+        ? "Can't reach the game server. Start it in another terminal: npm run start:server (or cd server && npm start). Server URL: " + serverUrl
         : err.message;
       setAuthError(message);
       throw err;

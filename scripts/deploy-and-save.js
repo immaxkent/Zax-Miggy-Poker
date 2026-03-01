@@ -5,10 +5,14 @@
  *
  * Usage:
  *   node scripts/deploy-and-save.js anvil [1.0.1]
+ *   node scripts/deploy-and-save.js sepolia [1.0.1]     # Ethereum Sepolia (11155111)
  *   node scripts/deploy-and-save.js base-sepolia [1.0.1]
  *   node scripts/deploy-and-save.js base [1.0.1]
  *
- * Requires: anvil running for anvil; contracts/.env set for base-sepolia/base.
+ * Requires (all networks):
+ *   - cast wallet import deployer --private-key <key>  (one-time; use Anvil default key for local)
+ *   - No --sender: Forge uses the keystore "deployer" address automatically.
+ * For anvil: anvil running. For sepolia/base: contracts/.env (SIGNER_ADDRESS, FEE_RECIPIENT, etc.) set.
  */
 
 const { spawn } = require('child_process');
@@ -19,26 +23,40 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 const CONTRACTS_DIR = path.join(REPO_ROOT, 'contracts');
 const VERSIONS_DIR = path.join(REPO_ROOT, 'versions');
 
+// Load .env so DEPLOYER_ADDRESS and RPC URLs (e.g. SEPOLIA_RPC_URL) are available when run from repo root
+function loadEnv(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  const content = fs.readFileSync(filePath, 'utf8');
+  content.split('\n').forEach((line) => {
+    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '').trim();
+  });
+}
+loadEnv(path.join(REPO_ROOT, '.env'));   // root .env (e.g. SEPOLIA_RPC_URL)
+loadEnv(path.join(CONTRACTS_DIR, '.env')); // contracts/.env (DEPLOYER_ADDRESS, overrides)
+
 const ANVIL_RPC = process.env.ANVIL_RPC_URL || 'http://127.0.0.1:8545';
 
 const NETWORKS = {
   anvil: {
     rpc: ANVIL_RPC,
     script: 'script/DeployLocal.s.sol:DeployLocal',
-    privateKey: '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+    parseFromDeployLocal: true,
+  },
+  sepolia: {
+    rpc: process.env.SEPOLIA_RPC_URL || 'https://rpc.sepolia.org',
+    script: 'script/DeploySepolia.s.sol:DeploySepolia',
     parseFromDeployLocal: true,
   },
   'base-sepolia': {
     rpc: 'https://sepolia.base.org',
     script: 'script/Deploy.s.sol:Deploy',
     parseFromDeployLocal: false,
-    useAccount: true,
   },
   base: {
     rpc: 'https://mainnet.base.org',
     script: 'script/Deploy.s.sol:Deploy',
     parseFromDeployLocal: false,
-    useAccount: true,
   },
 };
 
@@ -49,27 +67,18 @@ function ensureDir(dir) {
 function runForgeScript(networkKey) {
   const config = NETWORKS[networkKey];
   if (!config) {
-    console.error('Unknown network. Use: anvil | base-sepolia | base');
+    console.error('Unknown network. Use: anvil | sepolia | base-sepolia | base');
     process.exit(1);
   }
 
+  // Use only --account deployer so Forge uses the keystore address (no --sender to avoid mismatch)
   const args = [
     'script',
     config.script,
     '--rpc-url', config.rpc,
     '--broadcast',
+    '--account', 'deployer',
   ];
-  if (config.privateKey) {
-    args.push('--private-key', config.privateKey);
-  }
-  if (config.useAccount) {
-    const sender = process.env.DEPLOYER_ADDRESS;
-    if (!sender) {
-      console.error('For base-sepolia/base set DEPLOYER_ADDRESS and use cast wallet (e.g. --account deployer).');
-      process.exit(1);
-    }
-    args.push('--sender', sender, '--account', 'deployer');
-  }
 
   return new Promise((resolve, reject) => {
     const proc = spawn('forge', args, {
@@ -117,7 +126,7 @@ async function main() {
   const version = getVersion();
   if (!NETWORKS[network]) {
     console.error('Usage: node scripts/deploy-and-save.js <network> [version]');
-    console.error('Networks: anvil, base-sepolia, base. Version defaults to package.json or 1.0.0.');
+    console.error('Networks: anvil, sepolia (Ethereum Sepolia), base-sepolia, base.');
     process.exit(1);
   }
 

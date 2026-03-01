@@ -74,25 +74,42 @@ function main() {
     process.exit(1);
   }
 
-  const { tokenAddress, vaultAddress, version: v } = deployment;
+  const { tokenAddress, vaultAddress, usdcAddress, zaxMiggyVaultAddress, version: v } = deployment;
   if (!vaultAddress) {
     console.error('Deployment missing vaultAddress');
     process.exit(1);
   }
 
-  updateEnv(CLIENT_ENV, {
+  const clientUpdates = {
     VITE_TOKEN_ADDRESS: tokenAddress || '0x0000000000000000000000000000000000000000',
     VITE_VAULT_ADDRESS: vaultAddress,
-  });
-  updateEnv(SERVER_ENV, {
+  };
+  const serverUpdates = {
     TOKEN_ADDRESS: tokenAddress || '0x0000000000000000000000000000000000000000',
     VAULT_ADDRESS: vaultAddress,
-  });
+  };
+
+  if (network === 'base') {
+    serverUpdates.CHAIN_ID = '8453';
+    serverUpdates.BASE_RPC_URL = 'https://mainnet.base.org';
+    serverUpdates.TOKEN_DECIMALS = '6';
+    clientUpdates.VITE_CHAIN_ID = '8453';
+    if (usdcAddress) clientUpdates.VITE_USDC_ADDRESS = usdcAddress;
+    if (zaxMiggyVaultAddress) clientUpdates.VITE_ZAX_MIGGY_VAULT_ADDRESS = zaxMiggyVaultAddress;
+    serverUpdates.USDC_ADDRESS = usdcAddress || tokenAddress;
+    serverUpdates.ZAX_MIGGY_VAULT_ADDRESS = zaxMiggyVaultAddress || vaultAddress;
+  }
+
+  updateEnv(CLIENT_ENV, clientUpdates);
+  updateEnv(SERVER_ENV, serverUpdates);
 
   console.log(`Using ${network} @ ${v}`);
   console.log('  Token:', tokenAddress || '(none)');
   console.log('  Vault:', vaultAddress);
-  console.log('Updated client/.env and server/.env. Restart server and client to test on localhost.');
+  if (network === 'base') {
+    console.log('  Base: CHAIN_ID=8453, USDC + ZaxMiggy vault set.');
+  }
+  console.log('Updated client/.env and server/.env. Restart server and client.');
 }
 
 main();

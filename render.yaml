@@ -1,0 +1,18 @@
+# Render Blueprint — deploy the game server
+# https://render.com/docs/blueprint-spec
+# After connecting the repo, add these env vars in Dashboard (Environment): JWT_SECRET, HMAC_SECRET, SERVER_API_KEY, SIGNER_PRIVATE_KEY, TOKEN_ADDRESS, VAULT_ADDRESS, SEPOLIA_RPC_URL
+
+services:
+  - type: web
+    name: cryptopoker-server
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CHAIN_ID
+        value: "11155111"
+      - key: ALLOWED_ORIGINS
+        value: https://zax-and-miggy-poker.vercel.app

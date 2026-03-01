@@ -206,19 +206,6 @@ io.on('connection', (socket) => {
     }
   }
 
-  // ── Chip top-up notification (called after on-chain deposit confirmed) ──────
-  socket.on('chipDeposited', ({ netAmount }, ack) => {
-    // In production: verify on-chain event, don't trust client
-    const player = players.get(playerId);
-    if (player) {
-      player.chips += Number(netAmount);
-      socket.emit('chipsUpdated', { chips: player.chips });
-      ack?.({ chips: player.chips });
-    } else {
-      ack?.({ error: 'Player not found' });
-    }
-  });
-
   // ── Join table ────────────────────────────────────────────────────────────
   socket.on('joinTable', ({ tableId, buyIn }, ack) => {
     try {
@@ -244,6 +231,50 @@ io.on('connection', (socket) => {
       ack?.({ state });
 
       // Auto-start if enough players
+      if (table.canStart() && table.stage === 'waiting') {
+        setTimeout(() => tryStartHand(table), 3000);
+      }
+    } catch (err) {
+      ack?.({ error: err.message });
+    }
+  });
+
+  // ── Join USDC game table (on-chain game → server table for gameplay) ─────────
+  socket.on('joinUsdcTable', ({ gameId }, ack) => {
+    try {
+      const player = players.get(playerId);
+      if (!player) return ack?.({ error: 'NOT_AUTHENTICATED' });
+      if (player.tableId) return ack?.({ error: 'Already at a table. Leave first.' });
+
+      const tableId = `usdc-${gameId}`;
+      let table = tables.get(tableId);
+      if (!table) {
+        const usdcStake = {
+          name:          `USDC Game ${gameId}`,
+          smallBlind:    5,
+          bigBlind:      10,
+          minBuyIn:      200,
+          maxBuyIn:      1000,
+          maxSeats:      8,
+          minPlayers:    2,
+        };
+        table = new PokerTable({
+          ...usdcStake,
+          actionTimeoutSeconds: config.tables.actionTimeoutSeconds,
+          minPlayers: usdcStake.minPlayers || config.tables.minPlayersToStart,
+        }, tableId);
+        tables.set(tableId, table);
+        console.log(`📋 USDC table created: ${tableId}`);
+      }
+
+      const startingChips = 1000;
+      player.tableId = tableId;
+      const state = table.sitDown({ id: playerId, address: playerId, chips: startingChips });
+
+      socket.join(tableId);
+      io.to(tableId).emit('playerJoined', { playerId, chips: startingChips });
+      ack?.({ state });
+
       if (table.canStart() && table.stage === 'waiting') {
         setTimeout(() => tryStartHand(table), 3000);
       }
@@ -332,8 +363,11 @@ function leaveTable(playerId, socket, ack) {
   if (!table)            return ack?.({ error: 'TABLE_NOT_FOUND' });
 
   const refundChips = table.standUp(playerId);
-  player.chips      += refundChips;
-  player.tableId     = null;
+  const isUsdcTable = table.id.startsWith('usdc-');
+  if (!isUsdcTable) {
+    player.chips += refundChips;
+  }
+  player.tableId = null;
 
   socket.leave(table.id);
   io.to(table.id).emit('playerLeft', { playerId });
@@ -358,16 +392,18 @@ function tryStartHand(table) {
 }
 
 async function issueWinnerVouchers(results, tableId) {
+  const isUsdcTable = tableId.startsWith('usdc-');
   for (const [playerId, { won }] of Object.entries(results)) {
     if (won <= 0) continue;
     const player = players.get(playerId);
     if (!player) continue;
 
-    // Credit chips to player's account
-    player.chips += won;
+    if (!isUsdcTable) {
+      player.chips += won;
+    }
     const s = findSocket(playerId);
     if (s) {
-      s.emit('chipsUpdated', { chips: player.chips });
+      if (!isUsdcTable) s.emit('chipsUpdated', { chips: player.chips });
       s.emit('winNotification', { amount: won, tableId });
     }
     console.log(`💰 ${playerId} won ${won} chips on ${tableId}`);

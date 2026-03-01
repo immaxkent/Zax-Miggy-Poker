@@ -1,0 +1,9 @@
+{
+  "version": "1.0.1",
+  "network": "base",
+  "tokenAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "vaultAddress": "0x382C20bDbCcaa7E299C4aD014CfF2FeB226a3ef0",
+  "usdcAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "zaxMiggyVaultAddress": "0x382C20bDbCcaa7E299C4aD014CfF2FeB226a3ef0",
+  "deployedAt": "2026-02-27T21:09:02.837Z"
+}

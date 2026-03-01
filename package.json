@@ -2,5 +2,13 @@
   "name": "cryptopoker",
   "version": "1.0.1",
   "private": true,
-  "description": "CryptoPoker — on-chain poker on Base"
+  "description": "CryptoPoker — on-chain poker on Base",
+  "scripts": {
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "start:server": "cd server && npm start",
+    "deploy:base": "cd contracts && forge script script/DeployZaxMiggyBase.s.sol:DeployZaxMiggyBase --rpc-url ${BASE_RPC_URL:-https://mainnet.base.org} --broadcast --account deployMeta",
+    "extract:base": "node scripts/extract-and-save.js base 1.0.1",
+    "redeploy": "node scripts/redeploy.js"
+  }
 }

@@ -5,7 +5,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import dotenv from 'dotenv';
-dotenv.config();
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Load repo root .env then server/.env (server/.env overrides; root can set e.g. SEPOLIA_RPC_URL)
+dotenv.config({ path: path.join(__dirname, '..', '..', '.env') });
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 export const config = {
 
@@ -25,13 +31,21 @@ export const config = {
   },
 
   // ── Blockchain ───────────────────────────────────────────────────────────────
-  chain: {
-    rpcUrl:          process.env.BASE_RPC_URL    || 'http://127.0.0.1:8545',
-    chainId:         Number(process.env.CHAIN_ID || 31337),     // 31337=anvil, 8453=Base mainnet, 84532=Base Sepolia
-    tokenAddress:    process.env.TOKEN_ADDRESS,                 // ERC-20
-    vaultAddress:    process.env.VAULT_ADDRESS,                 // PokerVault.sol
-    tokenDecimals:   Number(process.env.TOKEN_DECIMALS || 18),
-  },
+  chain: (() => {
+    const chainId = Number(process.env.CHAIN_ID || 31337); // 31337=anvil, 11155111=Sepolia, 84532=Base Sepolia, 8453=Base
+    const rpcUrl  = chainId === 11155111
+      ? (process.env.SEPOLIA_RPC_URL || 'https://rpc.sepolia.org')
+      : (process.env.BASE_RPC_URL || (chainId === 8453 ? 'https://mainnet.base.org' : 'http://127.0.0.1:8545'));
+    return {
+      rpcUrl,
+      chainId,
+      tokenAddress:    process.env.TOKEN_ADDRESS,
+      vaultAddress:    process.env.VAULT_ADDRESS,
+      tokenDecimals:   Number(process.env.TOKEN_DECIMALS || 18),
+      usdcAddress:     process.env.USDC_ADDRESS || null,
+      zaxMiggyVaultAddress: process.env.ZAX_MIGGY_VAULT_ADDRESS || null,
+    };
+  })(),
 
   // ── Fee Structure ─────────────────────────────────────────────────────────
   // These MUST match the on-chain contract values or be ≤ them.
