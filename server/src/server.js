@@ -214,6 +214,7 @@ io.on('connection', (socket) => {
 
       const player = players.get(playerId);
       if (!player)          return ack?.({ error: 'NOT_AUTHENTICATED' });
+      if (player.tableId)   return ack?.({ error: 'Already at a table. Leave first.' });
 
       const table = tables.get(tableId);
       if (!table)           return ack?.({ error: 'TABLE_NOT_FOUND' });

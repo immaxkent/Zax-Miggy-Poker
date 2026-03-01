@@ -26,7 +26,14 @@ export function GameProvider({ children, authToken, walletAddress }) {
       reconnectionAttempts: 10,
     });
 
-    socket.on('connect',    () => { setConnected(true); setError(null); });
+    socket.on('connect', () => {
+      setConnected(true);
+      setError(null);
+      // If server still has us at a table (e.g. after refresh), restore view
+      socket.emit('getState', {}, (res) => {
+        if (res?.state) setGameState(res.state);
+      });
+    });
     socket.on('disconnect', () => setConnected(false));
     socket.on('connect_error', (err) => {
       console.error('Socket error:', err.message);
@@ -57,6 +64,15 @@ export function GameProvider({ children, authToken, walletAddress }) {
       if (res?.state) setGameState(res.state);
     });
   }
+
+  const refreshTableState = useCallback(() => {
+    return new Promise((resolve) => {
+      socketRef.current?.emit('getState', {}, (res) => {
+        if (res?.state) setGameState(res.state);
+        resolve(res?.state ?? null);
+      });
+    });
+  }, []);
 
   // ── Actions ────────────────────────────────────────────────────────────────
   const joinTable = useCallback((tableId, buyIn) => {
@@ -114,7 +130,7 @@ export function GameProvider({ children, authToken, walletAddress }) {
     <GameContext.Provider value={{
       connected, gameState, chips, notification,
       lastHand, tables, error,
-      joinTable, joinUsdcTable, leaveTable, playerAction, notifyDeposit,
+      joinTable, joinUsdcTable, leaveTable, playerAction, notifyDeposit, refreshTableState,
       setChips,
     }}>
       {children}

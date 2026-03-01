@@ -404,7 +404,7 @@ function CreateUsdcGameModal({ onClose, onCreated }) {
 
 function JoinUsdcGameModal({ onClose, onJoined }) {
   const { address, chainId } = useAccount();
-  const { joinUsdcTable, connected } = useGame();
+  const { joinUsdcTable, connected, refreshTableState } = useGame();
   const [gameIdInput, setGameIdInput] = useState('');
   const [step, setStep] = useState('input');
   const [error, setError] = useState(null);
@@ -488,7 +488,12 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
       await joinUsdcTable(validGameId);
       onClose();
     } catch (err) {
-      setError(err.message || 'Could not open table');
+      const msg = err.message || 'Could not open table';
+      setError(msg);
+      if (msg.includes('Already at a table')) {
+        const state = await refreshTableState();
+        if (state) onClose();
+      }
     } finally {
       setGoToTableLoading(false);
     }
@@ -555,20 +560,23 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
             {finished && <p className="text-amber-400 text-xs mt-2">This game is finished.</p>}
           </div>
         )}
+        {error && (
+          <div className="mb-4 p-3 rounded-xl text-sm" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)' }}>
+            <p className="text-red-300 font-medium">{error}</p>
+            {error.includes('Already at a table') && (
+              <p className="text-gray-400 text-xs mt-2">Use &quot;Leave table&quot; on the table screen first, or you will be taken back to your current table.</p>
+            )}
+            {(/resource|not available|unavailable/i.test(error)) && (
+              <p className="text-amber-300 text-xs mt-2">Switch your wallet to <strong>Base</strong> network, refresh the page, then try again.</p>
+            )}
+          </div>
+        )}
         {(isCreator || isAlreadyInGame) && !finished && depositAmountNum != null && depositAmountNum > 0 && (
           <button onClick={handleGoToTable} disabled={!connected || goToTableLoading}
             className="w-full py-3 rounded-xl font-bold text-sm mb-4 disabled:opacity-50"
             style={{ background: 'linear-gradient(135deg, #15803d, #22c55e)', color: '#fff' }}>
             {goToTableLoading ? '⏳ Opening table…' : '🃏 Go to table'}
           </button>
-        )}
-        {error && (
-          <div className="mb-3">
-            <div className="text-red-400 text-sm">{error}</div>
-            {(/resource|not available|unavailable/i.test(error)) && (
-              <p className="text-amber-300 text-xs mt-2">Switch your wallet to <strong>Base</strong> network, refresh the page, then try again. If using WalletConnect, try connecting with MetaMask or another wallet.</p>
-            )}
-          </div>
         )}
         <button onClick={handleJoin} disabled={!canJoin || step === 'approving' || step === 'joining' || wrongNetwork}
           className="w-full py-3.5 rounded-xl font-bold text-base disabled:opacity-40"
