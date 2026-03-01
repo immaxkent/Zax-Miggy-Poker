@@ -41,7 +41,13 @@ export function GameProvider({ children, authToken, walletAddress }) {
       setConnected(false);
     });
 
-    socket.on('gameState',   (state) => setGameState(state));
+    socket.on('gameState',   (state) => {
+      const who = state?.players?.find(p => p.isAction);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[gameState]', state?.stage, 'turn:', who ? `${who.address?.slice(0, 8)}...` : '-');
+      }
+      setGameState(state);
+    });
     socket.on('handStarted', (info)  => {
       setNotification({ type: 'hand', message: `Hand #${info.handNumber} starting!` });
       setTimeout(() => setNotification(null), 3000);

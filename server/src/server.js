@@ -307,12 +307,22 @@ io.on('connection', (socket) => {
       const result = table.applyAction(playerId, action, amount);
 
       // Broadcast new state to all at table
+      const broadcastIds = [];
+      const missingIds = [];
       table.players.forEach(p => {
         const playerSocket = findSocket(p.id);
         if (playerSocket) {
           playerSocket.emit('gameState', enrichState(table, table.toPublicState(p.id), p.id));
+          broadcastIds.push(p.id);
+        } else {
+          missingIds.push(p.id);
         }
       });
+      if (missingIds.length > 0) {
+        console.warn(`[${table.id}] gameState not sent (no socket): ${missingIds.join(', ')}. Sent to: ${broadcastIds.join(', ')}`);
+      } else {
+        console.log(`[${table.id}] gameState broadcast to ${broadcastIds.length} player(s), actionIdx=${table.actionIdx}`);
+      }
 
       // Showdown resolution
       if (table.stage === 'waiting' && result?.results) {
@@ -456,10 +466,16 @@ function tryStartHand(table) {
   table.gameStarted = true;
   const info = table.startHand();
   // Broadcast private hole cards to each player
+  const sent = [];
+  const missed = [];
   table.players.forEach(p => {
     const s = findSocket(p.id);
-    if (s) s.emit('gameState', enrichState(table, table.toPublicState(p.id), p.id));
+    if (s) {
+      s.emit('gameState', enrichState(table, table.toPublicState(p.id), p.id));
+      sent.push(p.id);
+    } else missed.push(p.id);
   });
+  if (missed.length > 0) console.warn(`[${table.id}] hand start: no socket for ${missed.join(', ')}`);
   io.to(table.id).emit('handStarted', {
     handNumber:  info.handNumber,
     dealerIdx:   info.dealerIdx,
