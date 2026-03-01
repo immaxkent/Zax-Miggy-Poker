@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { io } from 'socket.io-client';
-import { SERVER_URL, SERVER_API_KEY } from '../utils/web3Config';
+import { SERVER_URL, SOCKET_URL, SERVER_API_KEY } from '../utils/web3Config';
 
 const GameContext = createContext(null);
 
@@ -18,7 +18,7 @@ export function GameProvider({ children, authToken, walletAddress }) {
   useEffect(() => {
     if (!authToken || !walletAddress) return;
 
-    const socket = io(SERVER_URL, {
+    const socket = io(SOCKET_URL, {
       auth:      { token: authToken, apiKey: SERVER_API_KEY },
       transports: ['websocket'],
       reconnection: true,

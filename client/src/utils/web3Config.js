@@ -106,3 +106,5 @@ export const ZAX_MIGGY_VAULT_ABI = [
 
 export const SERVER_URL     = import.meta.env.VITE_SERVER_URL    || 'http://localhost:3001';
 export const SERVER_API_KEY = import.meta.env.VITE_SERVER_API_KEY || '';
+// Socket.IO needs a URL that supports WebSocket (Vercel proxy does not). Use VITE_SOCKET_URL (e.g. ngrok) when needed.
+export const SOCKET_URL     = import.meta.env.VITE_SOCKET_URL    || SERVER_URL;

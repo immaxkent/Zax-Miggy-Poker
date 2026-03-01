@@ -411,18 +411,34 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
   const wrongNetwork = chainId != null && Number(chainId) !== CHAIN_ID;
 
   const gameId = gameIdInput.trim() === '' ? null : (parseInt(gameIdInput, 10) | 0);
-  const { data: gameData } = useReadContract({
-    address: usdcVaultReady() && gameId >= 0 ? ZAX_MIGGY_VAULT_ADDRESS : undefined,
+  const validGameId = gameId != null && gameId >= 0 ? gameId : null;
+  const { data: rawGameData } = useReadContract({
+    address: usdcVaultReady() && validGameId != null ? ZAX_MIGGY_VAULT_ADDRESS : undefined,
     abi: ZAX_MIGGY_VAULT_ABI,
     functionName: 'getGame',
-    args: [BigInt(gameId)],
+    args: validGameId != null ? [BigInt(validGameId)] : undefined,
   });
 
+  // Wagmi/viem can return tuple as array or as object with named keys; normalize to one shape
+  const gameData = (() => {
+    if (rawGameData == null) return null;
+    if (Array.isArray(rawGameData)) return rawGameData;
+    if (typeof rawGameData === 'object' && rawGameData !== null) {
+      const o = rawGameData;
+      return [o.players, o.playerCount, o.depositAmount, o.createdAt, o.finished, o.winner];
+    }
+    return null;
+  })();
+
   const [players, playerCount, depositAmount, createdAt, finished, winner] = gameData || [];
-  const depositAmountNum = depositAmount != null ? Number(formatUnits(depositAmount, USDC_DECIMALS)) : null;
+  const depositAmountNum = depositAmount != null && typeof depositAmount === 'bigint'
+    ? Number(formatUnits(depositAmount, USDC_DECIMALS)) : null;
   const count = playerCount != null ? Number(playerCount) : 0;
-  const canJoin = gameData && !finished && count < 8 && depositAmount > 0n &&
-    !(Array.isArray(players) && players.some(p => p && String(p).toLowerCase() === address?.toLowerCase()));
+  const addrLower = address?.toLowerCase();
+  const creatorAddress = Array.isArray(players) && players[0] ? String(players[0]).toLowerCase() : null;
+  const isCreator = !!addrLower && creatorAddress === addrLower;
+  const isAlreadyInGame = Array.isArray(players) && !!addrLower && players.some(p => p && String(p).toLowerCase() === addrLower);
+  const canJoin = gameData && !finished && count < 8 && (depositAmount != null && depositAmount > 0n) && !isAlreadyInGame;
 
   const { data: usdcAllowance } = useReadContract({
     address: usdcVaultReady() ? USDC_ADDRESS : undefined,
@@ -433,7 +449,7 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
   });
 
   async function handleJoin() {
-    if (gameId == null || gameId < 0 || !depositAmount) return;
+    if (validGameId == null || !depositAmount) return;
     setError(null);
     try {
       if (!usdcAllowance || usdcAllowance < depositAmount) {
@@ -451,7 +467,7 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
         address: ZAX_MIGGY_VAULT_ADDRESS,
         abi: ZAX_MIGGY_VAULT_ABI,
         functionName: 'joinGame',
-        args: [BigInt(gameId)],
+        args: [BigInt(validGameId)],
       });
       await new Promise(r => setTimeout(r, 4000));
       onJoined?.();
@@ -470,6 +486,9 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
           <button onClick={onClose} className="text-gray-500 hover:text-white text-xl">✕</button>
         </div>
         <p className="text-gray-500 text-xs mb-3">Enter the game ID (from the table creator) to join. You will deposit the table cost in USDC.</p>
+        {!usdcVaultReady() && (
+          <p className="text-amber-400 text-xs mb-4">Connect to Base and set vault address (VITE_ZAX_MIGGY_VAULT_ADDRESS) to join USDC games.</p>
+        )}
         {wrongNetwork && (
           <div className="rounded-xl p-3 mb-4 text-sm" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
             <p className="text-red-300 font-bold">Wrong network</p>
@@ -481,7 +500,16 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
           <input type="number" value={gameIdInput} onChange={e => setGameIdInput(e.target.value)} placeholder="0"
             className="w-full px-4 py-3 rounded-xl text-white font-mono text-lg" style={{ background: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', outline: 'none' }} />
         </div>
-        {depositAmountNum != null && (
+        {validGameId == null && gameIdInput.trim() !== '' && (
+          <p className="text-amber-400 text-xs mb-3">Enter a valid game ID (e.g. 0).</p>
+        )}
+        {validGameId != null && depositAmountNum == null && !gameData && (
+          <p className="text-gray-500 text-xs mb-3">Loading game details…</p>
+        )}
+        {validGameId != null && gameData && count === 0 && (depositAmount == null || depositAmount === 0n) && (
+          <p className="text-amber-400 text-xs mb-3">No game found with this ID. Check the number and try again.</p>
+        )}
+        {depositAmountNum != null && depositAmountNum > 0 && (
           <div className="rounded-xl p-3 mb-4" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <div className="flex justify-between text-sm">
               <span className="text-gray-400">Table cost</span>
@@ -491,6 +519,16 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
               <span className="text-gray-400">Players</span>
               <span className="text-white">{count}/8</span>
             </div>
+            {isCreator && (
+              <p className="text-green-400 text-xs font-medium mt-3 pt-3 border-t border-white/10">
+                You created this game. Share game ID <span className="font-mono text-white">{validGameId}</span> so others can join.
+              </p>
+            )}
+            {isAlreadyInGame && !isCreator && (
+              <p className="text-amber-400 text-xs font-medium mt-3 pt-3 border-t border-white/10">
+                You’re already in this game.
+              </p>
+            )}
             {finished && <p className="text-amber-400 text-xs mt-2">This game is finished.</p>}
           </div>
         )}
