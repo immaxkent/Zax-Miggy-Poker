@@ -304,7 +304,11 @@ io.on('connection', (socket) => {
       if (!player?.tableId) return ack?.({ error: 'NOT_AT_TABLE' });
 
       const table  = tables.get(player.tableId);
+      const pIdxBefore = table.actionIdx;
+      const stageBefore = table.stage;
       const result = table.applyAction(playerId, action, amount);
+
+      console.log(`[ACTION] ${(playerId || '').slice(0, 10)}... ${action} @ ${stageBefore} → actionIdx ${pIdxBefore} → ${table.actionIdx}, firstToAct=${table.firstToActIdx}, stage=${table.stage}`);
 
       // Broadcast new state to all at table
       const broadcastIds = [];

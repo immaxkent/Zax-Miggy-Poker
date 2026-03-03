@@ -285,6 +285,9 @@ export class PokerTable {
   }
 
   // ── Player actions ──────────────────────────────────────────────────────────
+  // Rule: every player still in the hand must have a chance to act each betting round.
+  // We only advance to the next street when (1) everyone has matched the current bet (or folded/all-in),
+  // and (2) action has returned to the first-to-act (so everyone has had at least one turn).
   applyAction(playerId, action, amount = 0) {
     const id = (playerId || '').toLowerCase();
     const pIdx  = this.players.findIndex(p => (p.id || '').toLowerCase() === id);
@@ -335,19 +338,37 @@ export class PokerTable {
   }
 
   _advanceAction() {
+    // "Active" = can still act this round (not folded, not all-in)
     const active = this.players.filter(p => !p.folded && !p.allIn);
-    if (active.length <= 1) {
+    const roundComplete = this._bettingRoundComplete();
+
+    // Everyone else folded → advance to next street
+    if (active.length <= 1 && roundComplete) {
+      console.log(`[_advanceAction] at most one active and round complete, advancing stage`);
       this._nextStage();
       return;
     }
+    // One player can still act (e.g. one all-in, one not) — give turn to that player
+    if (active.length <= 1) {
+      const onlyActive = this.players.findIndex(p => !p.folded && !p.allIn);
+      if (onlyActive >= 0) {
+        console.log(`[_advanceAction] one active player (${onlyActive}), giving them the turn`);
+        this.actionIdx = onlyActive;
+      }
+      return;
+    }
+
+    // Multiple active: move to next player. End round only when everyone has matched AND action has returned to first-to-act (everyone had input).
     let next = (this.actionIdx + 1) % this.players.length;
     while (this.players[next].folded || this.players[next].allIn) {
       next = (next + 1) % this.players.length;
     }
-    // End betting round only when everyone has matched AND action has returned to first-to-act
-    if (this._bettingRoundComplete() && next === this.firstToActIdx) {
+    const backToFirst = next === this.firstToActIdx;
+    if (roundComplete && backToFirst) {
+      console.log(`[_advanceAction] round complete, back to firstToAct=${this.firstToActIdx}, advancing stage`);
       this._nextStage();
     } else {
+      console.log(`[_advanceAction] next=${next} (firstToAct=${this.firstToActIdx}, roundComplete=${roundComplete}), giving turn to player ${next}`);
       this.actionIdx = next;
     }
   }
