@@ -4,6 +4,7 @@
   "private": true,
   "description": "CryptoPoker — on-chain poker on Base",
   "scripts": {
+    "open-ssh": "ssh -i ~/Downloads/poker-game-server.pem ubuntu@35.179.163.69",
     "dev:server": "cd server && npm run dev",
     "dev:client": "cd client && npm run dev",
     "start:server": "cd server && npm start",

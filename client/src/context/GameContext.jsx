@@ -37,7 +37,11 @@ export function GameProvider({ children, authToken, walletAddress }) {
     socket.on('disconnect', () => setConnected(false));
     socket.on('connect_error', (err) => {
       console.error('Socket error:', err.message);
-      setError(err.message);
+      const msg = err.message || '';
+      const isWs = /websocket|ws|socket/i.test(msg);
+      setError(isWs
+        ? 'Game server unreachable. If you use ngrok, ensure the tunnel is running and VITE_SOCKET_URL matches your current ngrok URL, then redeploy.'
+        : msg);
       setConnected(false);
     });
 

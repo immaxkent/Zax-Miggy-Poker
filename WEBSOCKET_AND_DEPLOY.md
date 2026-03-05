@@ -11,7 +11,123 @@ To fix it, the frontend must connect the **socket** to a URL that actually reach
 
 ---
 
-## Fix: Expose EC2 with ngrok (HTTPS + WebSocket)
+## ngrok Pro: reconfigure with a reserved domain (recommended)
+
+With **ngrok Pro** you get a **reserved domain** that never changes. Configure it once and you won’t need to update URLs after restarts.
+
+### 1. Reserve a domain in ngrok
+
+1. Go to [dashboard.ngrok.com](https://dashboard.ngrok.com) → **Domains** (or **Cloud Edge** → Domains).
+2. Click **New Domain** and choose a name (e.g. `poker-game` → you’ll get `poker-game.ngrok-free.app` or `poker-game.ngrok.io` depending on plan).
+3. Copy the full **HTTPS** URL, e.g. `https://poker-game.ngrok-free.app`. This is your **fixed** URL — use it everywhere below as `https://YOUR-RESERVED-DOMAIN`.
+
+### 2. On EC2 — use the reserved domain when starting ngrok
+
+**Important:** ngrok must run **on EC2** (where your game server is), not on your Mac. If you run it on your Mac, it forwards **your laptop’s** localhost; when you close the laptop, the tunnel dies and the app can’t reach the server. On EC2 it can run 24/7.
+
+SSH into EC2 and run ngrok with your reserved domain:
+
+```bash
+# One-time: ensure ngrok is logged in with your Pro account (authtoken in place)
+# ngrok config add-authtoken YOUR_PRO_TOKEN   # if not already done
+
+# Start tunnel with reserved domain (keeps running until you stop it)
+ngrok http 3001 --domain=YOUR-RESERVED-DOMAIN
+```
+
+Replace `YOUR-RESERVED-DOMAIN` with the **host only** (e.g. `zax-and-miggy-poker.ngrok.app`), not the full URL.
+
+#### Run ngrok 24/7 on EC2 (autonomous)
+
+So you don’t have to keep an SSH window open:
+
+**Option A — screen (simple)**  
+Start ngrok inside a `screen` session; it keeps running after you disconnect.
+
+```bash
+# On EC2, after SSH in:
+screen -S ngrok
+ngrok http 3001 --domain=zax-and-miggy-poker.ngrok.app
+# Press Ctrl+A then D to detach (ngrok keeps running).
+# Close SSH; ngrok stays up.
+
+# Later, to check or stop ngrok:
+ssh -i ~/Downloads/poker-game-server.pem ubuntu@35.179.163.69
+screen -r ngrok   # reattach; Ctrl+C to stop ngrok, then exit
+```
+
+**Option B — systemd (survives reboot)**  
+Run ngrok as a service so it starts on boot and restarts if it crashes.
+
+On EC2 create a service file:
+
+```bash
+sudo nano /etc/systemd/system/ngrok.service
+```
+
+Paste (use your real domain and ensure ngrok is in PATH or use full path like `/usr/local/bin/ngrok`):
+
+```ini
+[Unit]
+Description=ngrok tunnel for poker server
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+ExecStart=/usr/bin/ngrok http 3001 --domain=zax-and-miggy-poker.ngrok.app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable ngrok
+sudo systemctl start ngrok
+sudo systemctl status ngrok
+```
+
+After that, ngrok runs autonomously on EC2; you don’t need a local terminal open.
+
+### 3. Server: allow the ngrok origin
+
+On EC2, edit `server/.env` (in your app directory, e.g. `/home/ubuntu/Zax-Miggy-Poker/server/.env`):
+
+```env
+ALLOWED_ORIGINS=https://zax-and-miggy-poker.vercel.app,https://YOUR-RESERVED-DOMAIN
+```
+
+Use your actual reserved domain (e.g. `https://poker-game.ngrok-free.app`). No trailing slash. Then:
+
+```bash
+cd /home/ubuntu/Zax-Miggy-Poker   # or your repo path
+pm2 restart poker
+```
+
+### 4. Frontend: point at the reserved URL (Vercel)
+
+In **Vercel** → your project → **Settings** → **Environment Variables**:
+
+| Name | Value |
+|------|--------|
+| `VITE_SOCKET_URL` | `https://YOUR-RESERVED-DOMAIN` |
+| `VITE_SERVER_URL` | (optional) Same URL if you want all traffic via ngrok, or keep `https://zax-and-miggy-poker.vercel.app/api/game` for API proxy |
+
+Example: `VITE_SOCKET_URL` = `https://poker-game.ngrok-free.app`  
+Use **https**, not wss. Save.
+
+### 5. Redeploy the frontend
+
+Trigger a new deploy so the build uses the new env (e.g. **Deployments** → **Redeploy** or push a commit). After that, the app will always use your reserved ngrok URL for the socket; you won’t need to change it again when you restart ngrok.
+
+---
+
+## Fix: Expose EC2 with ngrok (free / one-off URL)
 
 ### 1. On your EC2 server (SSH in)
 
@@ -81,7 +197,15 @@ If that tx is successful, the game was created. You can then share the **game ID
 
 ## Other console messages
 
-- **MetaMask "ethereum has only a getter"** — Another wallet extension is also setting `window.ethereum`. Safe to ignore if connect/sign still works, or disable other wallet extensions.
+- **MetaMask "Cannot set property ethereum of #<Window> which has only a getter"**  
+  Another wallet extension (e.g. Coinbase Wallet, Rabby) has made `window.ethereum` read-only, so MetaMask can’t overwrite it. **Safe to ignore** if connect/sign still work. To avoid it: use a browser profile with only MetaMask, or disable other Ethereum extensions.
+
+- **WebSocket connection to 'wss://…ngrok-free.dev/…' failed / Socket error: websocket error**  
+  The frontend is trying to reach the **ngrok URL that was baked in at build time**. That usually means:
+  1. **Ngrok isn’t running** — On EC2 (or your machine), start it: `ngrok http 3001`. The URL changes each time with free ngrok.
+  2. **URL changed** — If you restarted ngrok, you got a **new** URL. The deployed app (Vercel) still has the **old** URL. Update **Vercel** → Settings → Environment Variables → `VITE_SOCKET_URL` to the **current** ngrok HTTPS URL (e.g. `https://xxxx.ngrok-free.app`), then **redeploy** the frontend so the new value is used.
+  3. **Ngrok interstitial** — Free ngrok sometimes shows a browser warning page; that can break WebSocket. Visit the ngrok URL once in the browser and click through, or use a reserved ngrok domain.
+
 - **ERR_NAME_NOT_RESOLVED / Failed to fetch** — Often a temporary network or proxy issue. Using one stable backend URL (e.g. ngrok) for both API and socket can make this more reliable.
 
 ---
