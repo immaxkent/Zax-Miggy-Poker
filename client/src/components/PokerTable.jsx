@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
+import { useReadContract } from 'wagmi';
+import { formatUnits } from 'viem';
 import { useGame } from '../context/GameContext';
+import { ZAX_MIGGY_VAULT_ADDRESS, ZAX_MIGGY_VAULT_ABI, USDC_DECIMALS } from '../utils/web3Config';
 
 // Game logic: server/src/poker-engine.js (no external SDK). Client only renders server state. See POKER_ENGINE_AND_ISSUES.md.
 const SUIT_COLORS = { s: '#e2e8f0', h: '#f87171', d: '#f87171', c: '#e2e8f0' };
@@ -273,6 +276,32 @@ export default function PokerTable({ myAddress }) {
   const [handResult, setHandResult] = useState(null);
   const { lastHand } = useGame();
 
+  const tableId = gameState?.tableId;
+  const isUsdcTable = typeof tableId === 'string' && tableId.startsWith('usdc-');
+  const gameIdFromTable = isUsdcTable ? (parseInt(tableId.replace('usdc-', ''), 10) | 0) : null;
+  const validGameId = gameIdFromTable != null && gameIdFromTable >= 0 ? gameIdFromTable : null;
+
+  const { data: rawGameData } = useReadContract({
+    address: ZAX_MIGGY_VAULT_ADDRESS && validGameId != null ? ZAX_MIGGY_VAULT_ADDRESS : undefined,
+    abi: ZAX_MIGGY_VAULT_ABI,
+    functionName: 'getGame',
+    args: validGameId != null ? [BigInt(validGameId)] : undefined,
+  });
+
+  const potUsdc = (() => {
+    if (rawGameData == null) return null;
+    const arr = Array.isArray(rawGameData) ? rawGameData : (rawGameData?.playerCount != null
+      ? [rawGameData.players, rawGameData.playerCount, rawGameData.depositAmount, rawGameData.createdAt, rawGameData.finished, rawGameData.winner]
+      : null);
+    if (!arr) return null;
+    const [, playerCount, depositAmount] = arr;
+    if (depositAmount == null || playerCount == null) return null;
+    const count = Number(playerCount);
+    const deposit = typeof depositAmount === 'bigint' ? depositAmount : BigInt(depositAmount);
+    const totalPot = deposit * BigInt(count);
+    return formatUnits(totalPot, USDC_DECIMALS);
+  })();
+
   useEffect(() => {
     if (lastHand) {
       setHandResult(lastHand);
@@ -298,6 +327,12 @@ export default function PokerTable({ myAddress }) {
         <span className="text-white font-bold text-lg">Poker Table</span>
         <span style={{ color: '#f59e0b', fontWeight: 600 }}>{tableConfig?.name || 'Table'}</span>
         <span className="text-gray-400 text-sm">Blinds: {tableConfig?.smallBlind}/{tableConfig?.bigBlind}</span>
+        {isUsdcTable && potUsdc != null && (
+          <span className="text-emerald-300 font-semibold text-sm px-3 py-1 rounded-lg"
+            style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)' }}>
+            Pot: ${potUsdc} USDC
+          </span>
+        )}
         <span className="capitalize px-2 py-0.5 rounded text-sm" style={{
           background: stage === 'waiting' ? '#1e293b' : 'rgba(34,197,94,0.15)',
           color: stage === 'waiting' ? '#64748b' : '#4ade80',

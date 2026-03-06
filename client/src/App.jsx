@@ -61,9 +61,14 @@ function GameApp() {
                   style={{ background: connected ? '#4ade80' : '#f87171' }} />
                 {connected ? 'Server connected' : (socketError ? `Failed: ${socketError}` : 'Connecting...')}
               </div>
-              {!connected && !socketError && (
-                <span className="text-gray-500 text-xs">Start the game server: <code className="text-gray-400">cd server && npm run dev</code> (port 3001). This app is on 5173.</span>
-              )}
+              {!connected && !socketError && (() => {
+                const isLocalDev = typeof window !== 'undefined' && window.location?.hostname === 'localhost' && window.location?.port === '5173';
+                return isLocalDev ? (
+                  <span className="text-gray-500 text-xs">Start the game server: <code className="text-gray-400">cd server && npm run dev</code> (port 3001). This app is on 5173.</span>
+                ) : (
+                  <span className="text-gray-500 text-xs">Connecting to game server… If it doesn’t connect, check that the server and tunnel (e.g. ngrok) are running.</span>
+                );
+              })()}
             </div>
           )}
           <ConnectButton chainStatus="icon" showBalance={false} />
@@ -111,9 +116,20 @@ function GameApp() {
             {serverReachable === false && (
               <div className="text-amber-200 text-sm px-5 py-3 rounded-xl text-center max-w-md"
                 style={{ background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.4)' }}>
-                <strong>Game server not running.</strong> In another terminal run:<br />
-                <code className="text-white mt-1 inline-block">cd server && npm start</code><br />
-                <span className="text-gray-400 text-xs mt-1 block">Then refresh or click Sign In again.</span>
+                {(() => {
+                  const isLocalDev = typeof window !== 'undefined' && window.location?.hostname === 'localhost' && window.location?.port === '5173';
+                  return isLocalDev ? (
+                    <>
+                      <strong>Game server not running.</strong> In another terminal run:<br />
+                      <code className="text-white mt-1 inline-block">cd server && npm start</code><br />
+                      <span className="text-gray-400 text-xs mt-1 block">Then refresh or click Sign In again.</span>
+                    </>
+                  ) : (
+                    <>
+                      <strong>Game server unreachable.</strong> The server or tunnel (e.g. ngrok) may be down. Try again in a moment or check your deployment.
+                    </>
+                  );
+                })()}
               </div>
             )}
             {authError && (
