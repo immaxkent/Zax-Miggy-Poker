@@ -229,7 +229,7 @@ io.on('connection', (socket) => {
       // Deduct chips and sit down
       player.chips  -= buyIn;
       player.tableId = tableId;
-      if (!table.hostId) table.hostId = playerId;
+      if (!table.hostId) table.hostId = (playerId || '').toLowerCase();
       const rawState = table.sitDown({ id: playerId, address: playerId, chips: buyIn });
       const state    = enrichState(table, rawState, playerId);
 
@@ -279,7 +279,7 @@ io.on('connection', (socket) => {
       if (savedStack != null) stackMap.delete(playerId);
       usdcStacks.set(tableId, stackMap);
       player.tableId = tableId;
-      if (!table.hostId) table.hostId = playerId;
+      if (!table.hostId) table.hostId = (playerId || '').toLowerCase();
       const state = enrichState(table, table.sitDown({ id: playerId, address: playerId, chips: startingChips }), playerId);
 
       socket.join(tableId);
@@ -328,18 +328,18 @@ io.on('connection', (socket) => {
         console.log(`[${table.id}] gameState broadcast to ${broadcastIds.length} player(s), actionIdx=${table.actionIdx}`);
       }
 
-      // Showdown resolution
-      if (table.stage === 'waiting' && result?.results) {
+      // Hand finished: applyAction returns toPublicState (no `results`). Engine sets pendingHandComplete.
+      if (table.pendingHandComplete) {
+        const hc = table.pendingHandComplete;
+        table.pendingHandComplete = null;
         io.to(player.tableId).emit('handComplete', {
-          results:  result.results,
-          community: result.community,
-          verify:   result.verify,
+          handNumber: hc.handNumber,
+          results:    hc.results,
+          community:  hc.community,
+          holeCards:  hc.holeCards,
+          verify:     hc.verify,
         });
-
-        // Issue withdrawal vouchers for net winners
-        issueWinnerVouchers(result.results, player.tableId);
-
-        // No auto-start: host must click "Start game" for the next hand
+        issueWinnerVouchers(hc.results, player.tableId);
       }
 
       ack?.({ ok: true });
@@ -364,8 +364,13 @@ io.on('connection', (socket) => {
       const table = tables.get(player.tableId);
       if (table.stage !== 'waiting') return ack?.({ error: 'Hand already in progress' });
       if (!table.canStart()) return ack?.({ error: 'Not enough players to start' });
-      if (table.hostId !== playerId) return ack?.({ error: 'Only the host can start the game' });
-      tryStartHand(table);
+      if ((table.hostId || '').toLowerCase() !== (playerId || '').toLowerCase()) {
+        return ack?.({ error: 'Only the host can start the game' });
+      }
+      const started = tryStartHand(table);
+      if (!started) {
+        return ack?.({ error: 'Could not start hand — need enough players and table must be in lobby (waiting).' });
+      }
       table.players.forEach(p => {
         const s = findSocket(p.id);
         if (s) s.emit('gameState', enrichState(table, table.toPublicState(p.id), p.id));
@@ -384,7 +389,9 @@ io.on('connection', (socket) => {
       const table = tables.get(player.tableId);
       if (table.stage !== 'waiting') return ack?.({ error: 'Cannot terminate during a hand' });
       if (table.gameStarted) return ack?.({ error: 'Game has already started; cannot terminate' });
-      if (table.hostId !== playerId) return ack?.({ error: 'Only the host can terminate the game' });
+      if ((table.hostId || '').toLowerCase() !== (playerId || '').toLowerCase()) {
+        return ack?.({ error: 'Only the host can terminate the game' });
+      }
       const tableId = table.id;
       const isUsdc = tableId.startsWith('usdc-');
       const stackMap = isUsdc ? (usdcStacks.get(tableId) || new Map()) : null;
@@ -466,7 +473,7 @@ function leaveTable(playerId, socket, ack) {
 }
 
 function tryStartHand(table) {
-  if (!table.canStart() || table.stage !== 'waiting') return;
+  if (!table.canStart() || table.stage !== 'waiting') return false;
   table.gameStarted = true;
   const info = table.startHand();
   // Broadcast private hole cards to each player
@@ -486,6 +493,7 @@ function tryStartHand(table) {
     serverHash:  info.serverHash, // for provability
   });
   console.log(`🃏 Hand #${info.handNumber} started on ${table.id}`);
+  return true;
 }
 
 async function issueWinnerVouchers(results, tableId) {

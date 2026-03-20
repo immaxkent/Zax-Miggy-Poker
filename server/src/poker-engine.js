@@ -185,6 +185,8 @@ export class PokerTable {
     this.deck       = null;
     this.history    = [];    // hand history for this table
     this.firstToActIdx = -1; // first to act this betting round (must get back to them to end round)
+    /** Set when a hand ends (showdown or fold-win); server reads and emits handComplete, then clears */
+    this.pendingHandComplete = null;
   }
 
   // ── Seat management ─────────────────────────────────────────────────────────
@@ -224,6 +226,7 @@ export class PokerTable {
     if (!this.canStart()) throw new Error('Not enough players');
     if (this.stage !== 'waiting') throw new Error('Hand in progress');
 
+    this.pendingHandComplete = null;
     this.handNumber++;
     this.stage      = 'preflop';
     this.community  = [];
@@ -462,6 +465,7 @@ export class PokerTable {
     };
     this.history.push(record);
 
+    this.pendingHandComplete = record;
     this.stage = 'waiting';
     return record;
   }

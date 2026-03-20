@@ -189,7 +189,7 @@ function GameApp() {
 function AuthenticatedGameProvider({ children }) {
   const { token, address } = useAuth();
   return (
-    <GameProvider authToken={token} walletAddress={address}>
+    <GameProvider authToken={token} walletAddress={address?.toLowerCase()}>
       {children}
     </GameProvider>
   );

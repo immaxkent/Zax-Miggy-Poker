@@ -275,6 +275,7 @@ export default function PokerTable({ myAddress }) {
   const { gameState, playerAction, leaveTable, startGame, terminateGame } = useGame();
   const [handResult, setHandResult] = useState(null);
   const { lastHand } = useGame();
+  const [startError, setStartError] = useState(null);
 
   const tableId = gameState?.tableId;
   const isUsdcTable = typeof tableId === 'string' && tableId.startsWith('usdc-');
@@ -313,6 +314,10 @@ export default function PokerTable({ myAddress }) {
     }
   }, [lastHand]);
 
+  useEffect(() => {
+    if (gameState?.stage && gameState.stage !== 'waiting') setStartError(null);
+  }, [gameState?.stage]);
+
   if (!gameState) return null;
 
   const { players, community, pot, stage, config: tableConfig } = gameState;
@@ -320,9 +325,12 @@ export default function PokerTable({ myAddress }) {
   const seatPositions = getSeatPositions(players.length);
 
   const actionPlayer = players.find(p => p.isAction);
-  const isHost = (gameState.hostId || '').toLowerCase() === (myAddress || '').toLowerCase();
+  const me = (myAddress || '').toLowerCase();
+  const host = (gameState.hostId || '').toLowerCase();
+  const isHost = !!me && host === me;
   const canManageTable = gameState.stage === 'waiting' && !!gameState.hostId;
   const canTerminate = gameState.stage === 'waiting' && !gameState.gameStarted;
+  const hostShort = host ? `${host.slice(0, 6)}…${host.slice(-4)}` : '—';
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -362,7 +370,13 @@ export default function PokerTable({ myAddress }) {
         }}>{stage}</span>
         {actionPlayer && (
           <span style={{ color: '#fcd34d' }}>
-            ⏳ {(actionPlayer.address || '').toLowerCase() === (myAddress || '').toLowerCase() ? 'Your turn!' : `${(actionPlayer.address || '').slice(0, 6)}...`}
+            ⏳ {(actionPlayer.address || '').toLowerCase() === me ? 'Your turn!' : `${(actionPlayer.address || '').slice(0, 6)}...`}
+          </span>
+        )}
+        {gameState.stage === 'waiting' && (
+          <span className="text-gray-400 text-xs max-w-md text-center">
+            Host: <span className="text-gray-200 font-mono">{hostShort}</span>
+            {isHost ? ' · You start each hand with Start game' : ' · Only the host can press Start game'}
           </span>
         )}
       </header>
@@ -406,11 +420,20 @@ export default function PokerTable({ myAddress }) {
 
       {/* Action panel + host controls + leave */}
       <div className="flex-shrink-0 flex flex-col items-center gap-3 pb-6">
+        {startError && (
+          <div className="text-amber-200 text-sm px-4 py-2 rounded-xl max-w-lg text-center"
+            style={{ background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.4)' }}>
+            {startError}
+          </div>
+        )}
         {canManageTable && (
           <div className="flex gap-3 items-center">
             {isHost && (
               <>
-                <button onClick={() => startGame().catch(console.error)}
+                <button onClick={() => {
+                  setStartError(null);
+                  startGame().then(() => setStartError(null)).catch((e) => setStartError(e.message || 'Could not start'));
+                }}
                   disabled={!gameState?.players?.length || gameState.players.length < (tableConfig?.minPlayers ?? 2)}
                   className="px-5 py-2.5 rounded-xl font-bold text-sm disabled:opacity-50"
                   style={{ background: 'linear-gradient(135deg, #15803d, #22c55e)', color: '#fff' }}>
