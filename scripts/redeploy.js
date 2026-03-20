@@ -3,9 +3,9 @@
  * redeploy.js
  *
  * 1. If there are uncommitted changes: git add, commit, push (triggers Vercel redeploy).
- * 2. SSH to EC2 and run: pm2 restart poker
+ * 2. SSH to EC2 and run: git pull in repo + pm2 restart poker
  *
- * Optional env (or .env): REDEPLOY_SSH_KEY, REDEPLOY_SSH_HOST, REDEPLOY_COMMIT_MSG
+ * Optional env (or .env): REDEPLOY_SSH_KEY, REDEPLOY_SSH_HOST, REDEPLOY_REMOTE_DIR, REDEPLOY_COMMIT_MSG
  *   REDEPLOY_SSH_KEY  path to .pem key (default: ~/Downloads/poker-game-server.pem)
  *   REDEPLOY_SSH_HOST user@host (default: ubuntu@35.179.163.69)
  *
@@ -33,6 +33,7 @@ loadEnv();
 
 const SSH_KEY = process.env.REDEPLOY_SSH_KEY || path.join(process.env.HOME || '', 'Downloads', 'poker-game-server.pem');
 const SSH_HOST = process.env.REDEPLOY_SSH_HOST || 'ubuntu@35.179.163.69';
+const REMOTE_DIR = process.env.REDEPLOY_REMOTE_DIR || '/home/ubuntu/Zax-Miggy-Poker';
 
 function run(cmd, opts = {}) {
   return execSync(cmd, { encoding: 'utf8', cwd: root, ...opts });
@@ -77,11 +78,15 @@ function restartServer() {
     console.warn('Skipping server restart.');
     return;
   }
-  console.log('Restarting game server on EC2...');
-  const sshCmd = 'ssh -i "' + keyPath + '" -o StrictHostKeyChecking=no ' + SSH_HOST + ' "pm2 restart poker"';
+  console.log('Pulling latest + restarting game server on EC2...');
+  const remoteCmd = `cd ${REMOTE_DIR} && git pull && pm2 restart poker`;
   try {
-    run(sshCmd);
-    console.log('Server restarted (pm2 restart poker).');
+    execFileSync('ssh', ['-i', keyPath, '-o', 'StrictHostKeyChecking=no', SSH_HOST, remoteCmd], {
+      encoding: 'utf8',
+      cwd: root,
+      stdio: 'inherit',
+    });
+    console.log('Server updated & restarted (git pull + pm2 restart poker).');
   } catch (err) {
     console.error('Server restart failed:', err.message);
     process.exit(1);
