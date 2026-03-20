@@ -321,7 +321,8 @@ export default function PokerTable({ myAddress }) {
 
   const actionPlayer = players.find(p => p.isAction);
   const isHost = (gameState.hostId || '').toLowerCase() === (myAddress || '').toLowerCase();
-  const canStartOrTerminate = gameState.stage === 'waiting' && !gameState.gameStarted && gameState.hostId;
+  const canManageTable = gameState.stage === 'waiting' && !!gameState.hostId;
+  const canTerminate = gameState.stage === 'waiting' && !gameState.gameStarted;
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -405,7 +406,7 @@ export default function PokerTable({ myAddress }) {
 
       {/* Action panel + host controls + leave */}
       <div className="flex-shrink-0 flex flex-col items-center gap-3 pb-6">
-        {canStartOrTerminate && (
+        {canManageTable && (
           <div className="flex gap-3 items-center">
             {isHost && (
               <>
@@ -415,11 +416,13 @@ export default function PokerTable({ myAddress }) {
                   style={{ background: 'linear-gradient(135deg, #15803d, #22c55e)', color: '#fff' }}>
                   Start game
                 </button>
-                <button onClick={() => terminateGame().catch(console.error)}
-                  className="px-5 py-2.5 rounded-xl font-bold text-sm"
-                  style={{ background: 'rgba(239,68,68,0.2)', border: '1px solid #ef4444', color: '#fca5a5' }}>
-                  Terminate game
-                </button>
+                {canTerminate && (
+                  <button onClick={() => terminateGame().catch(console.error)}
+                    className="px-5 py-2.5 rounded-xl font-bold text-sm"
+                    style={{ background: 'rgba(239,68,68,0.2)', border: '1px solid #ef4444', color: '#fca5a5' }}>
+                    Terminate game
+                  </button>
+                )}
               </>
             )}
             {!isHost && (
