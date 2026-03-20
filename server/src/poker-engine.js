@@ -454,6 +454,10 @@ export class PokerTable {
       handNumber: this.handNumber,
       results,
       community:  this.community,
+      holeCards: this.players.reduce((acc, p) => {
+        acc[p.id] = p.cards;
+        return acc;
+      }, {}),
       verify:     this.deck.verifyInfo(),
     };
     this.history.push(record);

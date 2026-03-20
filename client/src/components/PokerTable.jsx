@@ -302,6 +302,9 @@ export default function PokerTable({ myAddress }) {
     const totalPot = deposit * BigInt(count);
     return formatUnits(totalPot, USDC_DECIMALS);
   })();
+  const potUsdcLabel = potUsdc != null
+    ? Number(potUsdc).toLocaleString(undefined, { maximumFractionDigits: 2 })
+    : null;
 
   useEffect(() => {
     if (lastHand) {
@@ -332,7 +335,7 @@ export default function PokerTable({ myAddress }) {
           potUsdc != null ? (
             <span className="text-emerald-300 font-semibold text-sm px-3 py-1 rounded-lg"
               style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)' }}>
-              Pot: ${potUsdc} USDC
+              🪙 Pot: ${potUsdcLabel}USDC
             </span>
           ) : !ZAX_MIGGY_VAULT_ADDRESS ? (
             <span className="text-amber-300 font-semibold text-sm px-3 py-1 rounded-lg"
@@ -444,6 +447,13 @@ export default function PokerTable({ myAddress }) {
                 <span className="text-gray-400">{addr.slice(0,8)}...</span>
                 {won > 0 && <span className="text-green-400 font-bold ml-2">+{won} chips</span>}
                 {hand && <span className="text-purple-300 ml-2">({hand.name})</span>}
+                {Array.isArray(handResult?.holeCards?.[addr]) && handResult.holeCards[addr].length > 0 && (
+                  <span className="ml-2 inline-flex gap-1 align-middle">
+                    {handResult.holeCards[addr].map((card, i) => (
+                      <Card key={`${addr}-${i}`} card={card} small />
+                    ))}
+                  </span>
+                )}
               </div>
             ))}
             {handResult.verify && (
