@@ -310,23 +310,7 @@ io.on('connection', (socket) => {
 
       console.log(`[ACTION] ${(playerId || '').slice(0, 10)}... ${action} @ ${stageBefore} → actionIdx ${pIdxBefore} → ${table.actionIdx}, firstToAct=${table.firstToActIdx}, stage=${table.stage}`);
 
-      // Broadcast new state to all at table
-      const broadcastIds = [];
-      const missingIds = [];
-      table.players.forEach(p => {
-        const playerSocket = findSocket(p.id);
-        if (playerSocket) {
-          playerSocket.emit('gameState', enrichState(table, table.toPublicState(p.id), p.id));
-          broadcastIds.push(p.id);
-        } else {
-          missingIds.push(p.id);
-        }
-      });
-      if (missingIds.length > 0) {
-        console.warn(`[${table.id}] gameState not sent (no socket): ${missingIds.join(', ')}. Sent to: ${broadcastIds.join(', ')}`);
-      } else {
-        console.log(`[${table.id}] gameState broadcast to ${broadcastIds.length} player(s), actionIdx=${table.actionIdx}`);
-      }
+      emitGameStateToAllAtTable(io, table, `[ACTION] actionIdx=${table.actionIdx}`);
 
       // Hand finished: applyAction returns toPublicState (no `results`). Engine sets pendingHandComplete.
       if (table.pendingHandComplete) {
@@ -339,7 +323,7 @@ io.on('connection', (socket) => {
           holeCards:  hc.holeCards,
           verify:     hc.verify,
         });
-        issueWinnerVouchers(hc.results, player.tableId);
+        issueWinnerVouchers(io, hc.results, player.tableId);
       }
 
       ack?.({ ok: true });
@@ -367,14 +351,10 @@ io.on('connection', (socket) => {
       if ((table.hostId || '').toLowerCase() !== (playerId || '').toLowerCase()) {
         return ack?.({ error: 'Only the host can start the game' });
       }
-      const started = tryStartHand(table);
+      const started = tryStartHand(io, table);
       if (!started) {
         return ack?.({ error: 'Could not start hand — need enough players and table must be in lobby (waiting).' });
       }
-      table.players.forEach(p => {
-        const s = findSocket(p.id);
-        if (s) s.emit('gameState', enrichState(table, table.toPublicState(p.id), p.id));
-      });
       ack?.({ ok: true, state: enrichState(table, table.toPublicState(playerId), playerId) });
     } catch (err) {
       ack?.({ error: err.message });
@@ -402,7 +382,7 @@ io.on('connection', (socket) => {
           pl.tableId = null;
           if (isUsdc && stackMap) stackMap.set(p.id, chips);
           else pl.chips += chips;
-          const sock = findSocket(p.id);
+          const sock = findSocket(io, p.id);
           if (sock) {
             sock.leave(tableId);
             sock.emit('chipsUpdated', { chips: pl.chips });
@@ -441,7 +421,41 @@ function enrichState(table, state, forPlayerId) {
   return state;
 }
 
-function findSocket(playerId) {
+/**
+ * Send each seated player their personalized view (hole cards). Prefer sockets that
+ * joined the table room (reliable with ngrok / multiple tabs); fall back to global scan.
+ */
+function emitGameStateToAllAtTable(io, table, context = '') {
+  const seatedIds = table.players.map((p) => (p.id || '').toLowerCase());
+  const delivered = new Set();
+  const room = io.sockets.adapter.rooms.get(table.id);
+  if (room && room.size > 0) {
+    for (const socketId of room) {
+      const s = io.sockets.sockets.get(socketId);
+      if (!s) continue;
+      const wid = (s.walletAddress || '').toLowerCase();
+      if (!wid || !seatedIds.includes(wid)) continue;
+      s.emit('gameState', enrichState(table, table.toPublicState(wid), wid));
+      delivered.add(wid);
+    }
+  }
+  for (const pid of seatedIds) {
+    if (delivered.has(pid)) continue;
+    const s = findSocket(io, pid);
+    if (s) {
+      s.emit('gameState', enrichState(table, table.toPublicState(pid), pid));
+      delivered.add(pid);
+    }
+  }
+  const missed = seatedIds.filter((id) => !delivered.has(id));
+  if (missed.length) {
+    console.warn(`[${table.id}] ${context} gameState NOT delivered to: ${missed.map((m) => m.slice(0, 10)).join(', ')}`);
+  } else if (context) {
+    console.log(`[${table.id}] ${context} gameState -> ${delivered.size} seated player(s)`);
+  }
+}
+
+function findSocket(io, playerId) {
   const id = (playerId || '').toLowerCase();
   for (const [, s] of io.sockets.sockets) {
     if ((s.walletAddress || '').toLowerCase() === id) return s;
@@ -472,21 +486,11 @@ function leaveTable(playerId, socket, ack) {
   ack?.({ chips: player.chips });
 }
 
-function tryStartHand(table) {
+function tryStartHand(io, table) {
   if (!table.canStart() || table.stage !== 'waiting') return false;
   table.gameStarted = true;
   const info = table.startHand();
-  // Broadcast private hole cards to each player
-  const sent = [];
-  const missed = [];
-  table.players.forEach(p => {
-    const s = findSocket(p.id);
-    if (s) {
-      s.emit('gameState', enrichState(table, table.toPublicState(p.id), p.id));
-      sent.push(p.id);
-    } else missed.push(p.id);
-  });
-  if (missed.length > 0) console.warn(`[${table.id}] hand start: no socket for ${missed.join(', ')}`);
+  emitGameStateToAllAtTable(io, table, 'hand start');
   io.to(table.id).emit('handStarted', {
     handNumber:  info.handNumber,
     dealerIdx:   info.dealerIdx,
@@ -496,7 +500,7 @@ function tryStartHand(table) {
   return true;
 }
 
-async function issueWinnerVouchers(results, tableId) {
+async function issueWinnerVouchers(io, results, tableId) {
   const isUsdcTable = tableId.startsWith('usdc-');
   for (const [playerId, { won }] of Object.entries(results)) {
     if (won <= 0) continue;
@@ -506,7 +510,7 @@ async function issueWinnerVouchers(results, tableId) {
     if (!isUsdcTable) {
       player.chips += won;
     }
-    const s = findSocket(playerId);
+    const s = findSocket(io, playerId);
     if (s) {
       if (!isUsdcTable) s.emit('chipsUpdated', { chips: player.chips });
       s.emit('winNotification', { amount: won, tableId });

@@ -26,6 +26,12 @@ export function GameProvider({ children, authToken, walletAddress }) {
       reconnectionAttempts: 10,
     });
 
+    function refreshState(s) {
+      s.emit('getState', {}, (res) => {
+        if (res?.state) setGameState(res.state);
+      });
+    }
+
     socket.on('connect', () => {
       setConnected(true);
       setError(null);
@@ -55,6 +61,8 @@ export function GameProvider({ children, authToken, walletAddress }) {
     socket.on('handStarted', (info)  => {
       setNotification({ type: 'hand', message: `Hand #${info.handNumber} starting!` });
       setTimeout(() => setNotification(null), 3000);
+      // Self-heal if personalized gameState was missed (room broadcast / timing)
+      refreshState(socket);
     });
     socket.on('handComplete', (result) => setLastHand(result));
     socket.on('chipsUpdated', ({ chips }) => setChips(chips));
@@ -73,12 +81,6 @@ export function GameProvider({ children, authToken, walletAddress }) {
 
     return () => { socket.disconnect(); socketRef.current = null; };
   }, [authToken, walletAddress]);
-
-  function refreshState(socket) {
-    socket.emit('getState', {}, (res) => {
-      if (res?.state) setGameState(res.state);
-    });
-  }
 
   const refreshTableState = useCallback(() => {
     return new Promise((resolve) => {
