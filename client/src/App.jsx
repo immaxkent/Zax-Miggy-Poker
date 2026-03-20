@@ -17,6 +17,18 @@ function GameApp() {
   const { token, authed, loading, authError, login, address } = useAuth();
   const { connected, gameState, notification, error: socketError } = useGame();
   const [serverReachable, setServerReachable] = useState(null);
+  const [showConnectionHint, setShowConnectionHint] = useState(false);
+
+  // Only show the long "check tunnel" hint after we've been connecting for a few seconds
+  useEffect(() => {
+    if (connected || socketError) {
+      setShowConnectionHint(false);
+      return;
+    }
+    if (!authed) return;
+    const t = setTimeout(() => setShowConnectionHint(true), 5000);
+    return () => clearTimeout(t);
+  }, [connected, socketError, authed]);
 
   const isAtTable = !!gameState;
 
@@ -65,9 +77,9 @@ function GameApp() {
                 const isLocalDev = typeof window !== 'undefined' && window.location?.hostname === 'localhost' && window.location?.port === '5173';
                 return isLocalDev ? (
                   <span className="text-gray-500 text-xs">Start the game server: <code className="text-gray-400">cd server && npm run dev</code> (port 3001). This app is on 5173.</span>
-                ) : (
-                  <span className="text-gray-500 text-xs">Connecting to game server… If it doesn’t connect, check that the server and tunnel (e.g. ngrok) are running.</span>
-                );
+                ) : showConnectionHint ? (
+                  <span className="text-gray-500 text-xs">Still connecting — check that the server and tunnel (e.g. ngrok) are running on EC2.</span>
+                ) : null;
               })()}
             </div>
           )}

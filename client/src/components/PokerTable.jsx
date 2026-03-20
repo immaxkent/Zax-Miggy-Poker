@@ -281,11 +281,12 @@ export default function PokerTable({ myAddress }) {
   const gameIdFromTable = isUsdcTable ? (parseInt(tableId.replace('usdc-', ''), 10) | 0) : null;
   const validGameId = gameIdFromTable != null && gameIdFromTable >= 0 ? gameIdFromTable : null;
 
-  const { data: rawGameData } = useReadContract({
-    address: ZAX_MIGGY_VAULT_ADDRESS && validGameId != null ? ZAX_MIGGY_VAULT_ADDRESS : undefined,
+  const vaultReady = !!ZAX_MIGGY_VAULT_ADDRESS && validGameId != null;
+  const { data: rawGameData, isLoading: gameLoading, error: gameReadError } = useReadContract({
+    address: vaultReady ? ZAX_MIGGY_VAULT_ADDRESS : undefined,
     abi: ZAX_MIGGY_VAULT_ABI,
     functionName: 'getGame',
-    args: validGameId != null ? [BigInt(validGameId)] : undefined,
+    args: vaultReady ? [BigInt(validGameId)] : undefined,
   });
 
   const potUsdc = (() => {
@@ -327,11 +328,28 @@ export default function PokerTable({ myAddress }) {
         <span className="text-white font-bold text-lg">Poker Table</span>
         <span style={{ color: '#f59e0b', fontWeight: 600 }}>{tableConfig?.name || 'Table'}</span>
         <span className="text-gray-400 text-sm">Blinds: {tableConfig?.smallBlind}/{tableConfig?.bigBlind}</span>
-        {isUsdcTable && potUsdc != null && (
-          <span className="text-emerald-300 font-semibold text-sm px-3 py-1 rounded-lg"
-            style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)' }}>
-            Pot: ${potUsdc} USDC
-          </span>
+        {isUsdcTable && (
+          potUsdc != null ? (
+            <span className="text-emerald-300 font-semibold text-sm px-3 py-1 rounded-lg"
+              style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)' }}>
+              Pot: ${potUsdc} USDC
+            </span>
+          ) : !ZAX_MIGGY_VAULT_ADDRESS ? (
+            <span className="text-amber-300 font-semibold text-sm px-3 py-1 rounded-lg"
+              style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.35)' }}>
+              Pot: set VITE_ZAX_MIGGY_VAULT_ADDRESS
+            </span>
+          ) : gameReadError ? (
+            <span className="text-red-300 font-semibold text-sm px-3 py-1 rounded-lg"
+              style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)' }}>
+              Pot: error reading contract (check Base network)
+            </span>
+          ) : (
+            <span className="text-gray-300 font-semibold text-sm px-3 py-1 rounded-lg"
+              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
+              Pot: {gameLoading ? 'loading…' : '—'}
+            </span>
+          )
         )}
         <span className="capitalize px-2 py-0.5 rounded text-sm" style={{
           background: stage === 'waiting' ? '#1e293b' : 'rgba(34,197,94,0.15)',
