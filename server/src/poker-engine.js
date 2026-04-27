@@ -126,10 +126,16 @@ function evaluate5(cards) {
     : groups[0].count === 2 ? 1
     : 0;
 
+  // For straights, kickers must use straightHigh (not raw ranks) so the wheel (A-low)
+  // compares correctly against higher straights — Ace would otherwise inflate kickers[0].
+  const kickers = (category === 4 || category === 8)
+    ? [straightHigh]
+    : groups.map(g => g.rank);
+
   return {
     category,
     name:     HAND_NAMES[category],
-    kickers:  groups.map(g => g.rank),
+    kickers,
     cards,
   };
 }
@@ -184,7 +190,8 @@ export class PokerTable {
     this.handNumber = 0;
     this.deck       = null;
     this.history    = [];    // hand history for this table
-    this.firstToActIdx = -1; // first to act this betting round (must get back to them to end round)
+    this.firstToActIdx = -1; // kept for logging; termination now uses actedThisRound
+    this.actedThisRound = new Set(); // tracks who has acted this street (reset on new street / raise)
     /** Set when a hand ends (showdown or fold-win); server reads and emits handComplete, then clears */
     this.pendingHandComplete = null;
   }
@@ -227,6 +234,7 @@ export class PokerTable {
     if (this.stage !== 'waiting') throw new Error('Hand in progress');
 
     this.pendingHandComplete = null;
+    this.actedThisRound = new Set();
     this.handNumber++;
     this.stage      = 'preflop';
     this.community  = [];
@@ -244,8 +252,10 @@ export class PokerTable {
 
     // Rotate dealer
     this.dealerIdx  = (this.dealerIdx + 1) % this.players.length;
-    const sbIdx     = (this.dealerIdx + 1) % this.players.length;
-    const bbIdx     = (this.dealerIdx + 2) % this.players.length;
+    const isHeadsUp = this.players.length === 2;
+    // Fix #3: heads-up dealer = SB; 3+ players SB is left of dealer
+    const sbIdx     = isHeadsUp ? this.dealerIdx : (this.dealerIdx + 1) % this.players.length;
+    const bbIdx     = isHeadsUp ? (this.dealerIdx + 1) % this.players.length : (this.dealerIdx + 2) % this.players.length;
 
     // Shuffle
     this.deck = new ProvablyFairDeck();
@@ -264,8 +274,8 @@ export class PokerTable {
     this._postBlind(bbIdx, this.config.bigBlind);
     this.currentBet = this.config.bigBlind;
 
-    // Action starts left of BB (or UTG heads-up = dealer)
-    this.actionIdx = (bbIdx + 1) % this.players.length;
+    // Action starts left of BB for 3+ players; heads-up SB (dealer) acts first preflop
+    this.actionIdx = isHeadsUp ? sbIdx : (bbIdx + 1) % this.players.length;
     this.firstToActIdx = this.actionIdx; // so we only end preflop when action returns to UTG and all have matched
 
     return {
@@ -328,6 +338,8 @@ export class PokerTable {
         p.allIn    = p.chips === 0;
         this.currentBet = p.bet;
         this.pot  += toRaise;
+        // Fix #4: raise reopens action — clear acted set so all others must re-act
+        this.actedThisRound = new Set();
         break;
       }
 
@@ -335,7 +347,8 @@ export class PokerTable {
         throw new Error(`Unknown action: ${action}`);
     }
 
-    // Advance action pointer
+    // Record that this player has acted this street, then advance
+    this.actedThisRound.add(id);
     this._advanceAction();
     return this.toPublicState(playerId);
   }
@@ -344,34 +357,31 @@ export class PokerTable {
     // "Active" = can still act this round (not folded, not all-in)
     const active = this.players.filter(p => !p.folded && !p.allIn);
     const roundComplete = this._bettingRoundComplete();
+    // Round ends when bets are matched AND every active player has acted at least once this street.
+    // Using actedThisRound (a Set) instead of firstToActIdx avoids the infinite loop when the
+    // first-to-act player folds mid-round.
+    const allActed = active.every(p => this.actedThisRound.has((p.id || '').toLowerCase()));
 
-    // Everyone else folded → advance to next street
+    // 0 or 1 active players left — advance if bets settled, otherwise give turn to the lone player
     if (active.length <= 1 && roundComplete) {
-      console.log(`[_advanceAction] at most one active and round complete, advancing stage`);
       this._nextStage();
       return;
     }
-    // One player can still act (e.g. one all-in, one not) — give turn to that player
     if (active.length <= 1) {
       const onlyActive = this.players.findIndex(p => !p.folded && !p.allIn);
-      if (onlyActive >= 0) {
-        console.log(`[_advanceAction] one active player (${onlyActive}), giving them the turn`);
-        this.actionIdx = onlyActive;
-      }
+      if (onlyActive >= 0) this.actionIdx = onlyActive;
       return;
     }
 
-    // Multiple active: move to next player. End round only when everyone has matched AND action has returned to first-to-act (everyone had input).
+    // Multiple active players: move pointer to next eligible player
     let next = (this.actionIdx + 1) % this.players.length;
     while (this.players[next].folded || this.players[next].allIn) {
       next = (next + 1) % this.players.length;
     }
-    const backToFirst = next === this.firstToActIdx;
-    if (roundComplete && backToFirst) {
-      console.log(`[_advanceAction] round complete, back to firstToAct=${this.firstToActIdx}, advancing stage`);
+
+    if (roundComplete && allActed) {
       this._nextStage();
     } else {
-      console.log(`[_advanceAction] next=${next} (firstToAct=${this.firstToActIdx}, roundComplete=${roundComplete}), giving turn to player ${next}`);
       this.actionIdx = next;
     }
   }
@@ -383,9 +393,10 @@ export class PokerTable {
   }
 
   _nextStage() {
-    // Reset bets for new round
+    // Reset bets and acted-set for new street
     this.players.forEach(p => { p.bet = 0; });
     this.currentBet = 0;
+    this.actedThisRound = new Set();
 
     const stageOrder = ['preflop','flop','turn','river','showdown'];
     const nextIdx    = stageOrder.indexOf(this.stage) + 1;
@@ -407,7 +418,15 @@ export class PokerTable {
 
     // First to act post-flop = first active left of dealer
     const sbIdx = (this.dealerIdx + 1) % this.players.length;
-    let   first = sbIdx;
+
+    // Fix #1: if all remaining players are all-in, run out the board automatically
+    const activeCount = this.players.filter(p => !p.folded && !p.allIn).length;
+    if (activeCount === 0) {
+      this._nextStage();
+      return;
+    }
+
+    let first = sbIdx;
     while (this.players[first].folded || this.players[first].allIn) {
       first = (first + 1) % this.players.length;
     }
@@ -439,16 +458,23 @@ export class PokerTable {
 
       // Distribute each side pot
       for (const pot of pots) {
-        const eligible  = pot.eligible.filter(id => !this.players.find(p => p.id === id)?.folded);
-        const winner    = eligible.reduce((best, id) => {
-          if (!best) return id;
-          return compareScores(results[id].hand, results[best].hand) > 0 ? id : best;
+        const eligible = pot.eligible.filter(id => !this.players.find(p => p.id === id)?.folded);
+
+        // Fix #2: find all tied winners and split the pot equally
+        const bestHand = eligible.reduce((best, id) => {
+          if (!best) return results[id].hand;
+          return compareScores(results[id].hand, best) > 0 ? results[id].hand : best;
         }, null);
 
-        if (winner) {
-          results[winner].won += pot.amount;
-          this.players.find(p => p.id === winner).chips += pot.amount;
-        }
+        const winners = eligible.filter(id => compareScores(results[id].hand, bestHand) === 0);
+        const share   = Math.floor(pot.amount / winners.length);
+        const remainder = pot.amount % winners.length;
+
+        winners.forEach((id, i) => {
+          const amount = share + (i === 0 ? remainder : 0); // odd chip to earliest winner
+          results[id].won += amount;
+          this.players.find(p => p.id === id).chips += amount;
+        });
       }
     }
 

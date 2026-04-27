@@ -7,7 +7,7 @@
     "start:server": "node src/server.js",
     "start:aws": "node src/start.js",
     "dev":     "npx nodemon src/server.js",
-    "test":    "node --experimental-vm-modules node_modules/.bin/jest"
+    "test":    "node --test test/poker-engine.test.js"
   },
   "dependencies": {
     "@aws-sdk/client-secrets-manager": "^3.700.0",
