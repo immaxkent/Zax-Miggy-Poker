@@ -102,7 +102,14 @@ app.post('/auth/verify', requireApiKey, rateLimiter(10, 60_000), async (req, res
     if (!nonce) return res.status(400).json({ error: 'Challenge expired or not found' });
 
     const message  = `Sign this message to log in to CryptoPoker.\nNonce: ${nonce}`;
-    const recovered = ethers.verifyMessage(message, signature);
+    // Some wallets (e.g. MetaMask mobile) produce high-S signatures that ethers v6
+    // rejects as non-canonical. Normalize before verifying.
+    let sigToVerify = signature;
+    try {
+      const parsed = ethers.Signature.from(signature);
+      sigToVerify = parsed.normalize().serialized;
+    } catch { /* malformed sig — verifyMessage will reject it below */ }
+    const recovered = ethers.verifyMessage(message, sigToVerify);
 
     if (recovered.toLowerCase() !== address.toLowerCase()) {
       return res.status(401).json({ error: 'Signature mismatch' });
