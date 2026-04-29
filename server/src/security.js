@@ -131,10 +131,48 @@ export function getServerSignerAddress() {
   return signerWallet.address;
 }
 
+// ─── Vault contract — server-submitted on-chain transactions ─────────────────
+
+const CANCEL_GAME_ABI = [
+  'function cancelGame(uint256 gameId, uint256 nonce, bytes calldata sig) external',
+];
+
+// Lazily initialised so the server can start before the vault address is set
+let _vault = null;
+
+function getVault() {
+  if (_vault) return _vault;
+  const addr = config.chain.zaxMiggyVaultAddress;
+  if (!addr) return null;
+  const provider = new ethers.JsonRpcProvider(config.chain.rpcUrl);
+  const connected = new ethers.Wallet(config.server.signerPrivKey, provider);
+  _vault = new ethers.Contract(addr, CANCEL_GAME_ABI, connected);
+  return _vault;
+}
+
+/**
+ * Sign and submit cancelGame on-chain. Resolves when the tx is mined.
+ * Hash mirrors _buildCancelHash in ZaxAndMiggyVault.sol:
+ *   keccak256(abi.encodePacked(block.chainid, address(this), "cancel", gameId, nonce))
+ */
+export async function signAndSubmitCancelGame(gameId) {
+  const vault = getVault();
+  if (!vault) throw new Error('ZAX_MIGGY_VAULT_ADDRESS not configured — cannot cancel game on-chain');
+
+  const nonce  = BigInt(Date.now());
+  const packed = ethers.solidityPackedKeccak256(
+    ['uint256', 'address', 'string', 'uint256', 'uint256'],
+    [config.chain.chainId, config.chain.zaxMiggyVaultAddress, 'cancel', BigInt(gameId), nonce]
+  );
+  const sig = await signerWallet.signMessage(ethers.getBytes(packed));
+  const tx  = await vault.cancelGame(BigInt(gameId), nonce, sig);
+  await tx.wait();
+}
+
 // ─── Simple per-IP rate limiter (in-memory) ───────────────────────────────────
-const ipBuckets = new Map();
 
 export function rateLimiter(maxRequests = 20, windowMs = 60_000) {
+  const ipBuckets = new Map();
   return (req, res, next) => {
     const ip  = req.ip;
     const now = Date.now();

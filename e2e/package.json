@@ -1,0 +1,14 @@
+{
+  "name": "poker-e2e",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Level-4 E2E tests: real server + real anvil chain + real contracts",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "ethers": "^6.11.1",
+    "socket.io-client": "^4.7.5"
+  }
+}

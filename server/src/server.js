@@ -30,6 +30,7 @@ import {
   socketAuthMiddleware,
   signWithdrawalVoucher,
   getServerSignerAddress,
+  signAndSubmitCancelGame,
 } from './security.js';
 import { PokerTable } from './poker-engine.js';
 
@@ -40,6 +41,7 @@ validateConfig();
 const players = new Map();  // address → { id, chips, tableId, nonce }
 const tables  = new Map();  // tableId → PokerTable
 const usdcStacks = new Map();  // tableId → Map<playerId, chips> (stack when they left, for rejoin)
+const terminatedTables = new Set();  // tableIds that have been terminated (blocks rejoin)
 
 // ─── Pre-create tables for each stake level ───────────────────────────────────
 for (const [key, stakeConfig] of Object.entries(config.tables.stakes)) {
@@ -251,6 +253,9 @@ io.on('connection', (socket) => {
       if (player.tableId) return ack?.({ error: 'Already at a table. Leave first.' });
 
       const tableId = `usdc-${gameId}`;
+      if (terminatedTables.has(tableId)) {
+        return ack?.({ error: 'Game has been terminated and cannot be rejoined' });
+      }
       let table = tables.get(tableId);
       if (!table) {
         const usdcStake = {
@@ -362,7 +367,7 @@ io.on('connection', (socket) => {
   });
 
   // ── Terminate game (host only, before first hand) ────────────────────────────
-  socket.on('terminateGame', (_, ack) => {
+  socket.on('terminateGame', async (_, ack) => {
     try {
       const player = players.get(playerId);
       if (!player?.tableId) return ack?.({ error: 'NOT_AT_TABLE' });
@@ -374,6 +379,16 @@ io.on('connection', (socket) => {
       }
       const tableId = table.id;
       const isUsdc = tableId.startsWith('usdc-');
+
+      // For USDC tables, cancel on-chain first so players get their deposits back
+      if (isUsdc) {
+        const gameId = tableId.replace('usdc-', '');
+        await signAndSubmitCancelGame(gameId);
+      }
+
+      // Block any future rejoins for this table
+      terminatedTables.add(tableId);
+
       const stackMap = isUsdc ? (usdcStacks.get(tableId) || new Map()) : null;
       [...table.players].forEach(p => {
         const chips = table.standUp(p.id);

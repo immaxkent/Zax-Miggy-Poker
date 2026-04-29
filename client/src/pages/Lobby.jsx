@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAccount, useWriteContract, useReadContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import {
@@ -394,7 +395,11 @@ function CreateUsdcGameModal({ onClose, onCreated }) {
             <p className="text-green-300 font-bold mb-2">Game created</p>
             <p className="text-gray-300 text-sm">Game ID: <span className="font-mono text-white">{gameId}</span></p>
             <p className="text-gray-500 text-xs mt-2">Share this ID so others can join. Table cost: {amount} USDC.</p>
-            <button onClick={onClose} className="w-full mt-4 py-2.5 rounded-xl font-bold text-sm text-gray-300" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)' }}>Close</button>
+            <button onClick={() => onCreated?.(gameId)}
+              className="w-full mt-4 py-2.5 rounded-xl font-bold text-sm text-white"
+              style={{ background: 'linear-gradient(135deg, #15803d, #22c55e)' }}>
+              🃏 Go to table
+            </button>
           </div>
         )}
       </div>
@@ -404,11 +409,11 @@ function CreateUsdcGameModal({ onClose, onCreated }) {
 
 function JoinUsdcGameModal({ onClose, onJoined }) {
   const { address, chainId } = useAccount();
-  const { joinUsdcTable, connected, refreshTableState } = useGame();
+  const { connected } = useGame();
+  const navigate = useNavigate();
   const [gameIdInput, setGameIdInput] = useState('');
   const [step, setStep] = useState('input');
   const [error, setError] = useState(null);
-  const [goToTableLoading, setGoToTableLoading] = useState(false);
   const { writeContractAsync } = useWriteContract();
   const wrongNetwork = chainId != null && Number(chainId) !== CHAIN_ID;
 
@@ -473,6 +478,7 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
       });
       await new Promise(r => setTimeout(r, 4000));
       onJoined?.();
+      navigate(`/game/${validGameId}`);
       onClose();
     } catch (err) {
       setError(err.shortMessage || err.message || 'Transaction failed');
@@ -480,23 +486,9 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
     }
   }
 
-  async function handleGoToTable() {
-    if (validGameId == null || !connected) return;
-    setError(null);
-    setGoToTableLoading(true);
-    try {
-      await joinUsdcTable(validGameId);
-      onClose();
-    } catch (err) {
-      const msg = err.message || 'Could not open table';
-      setError(msg);
-      if (msg.includes('Already at a table')) {
-        const state = await refreshTableState();
-        if (state) onClose();
-      }
-    } finally {
-      setGoToTableLoading(false);
-    }
+  function handleGoToTable() {
+    navigate(`/game/${validGameId}`);
+    onClose();
   }
 
   return (
@@ -572,10 +564,10 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
           </div>
         )}
         {(isCreator || isAlreadyInGame) && !finished && depositAmountNum != null && depositAmountNum > 0 && (
-          <button onClick={handleGoToTable} disabled={!connected || goToTableLoading}
+          <button onClick={handleGoToTable} disabled={!connected}
             className="w-full py-3 rounded-xl font-bold text-sm mb-4 disabled:opacity-50"
             style={{ background: 'linear-gradient(135deg, #15803d, #22c55e)', color: '#fff' }}>
-            {goToTableLoading ? '⏳ Opening table…' : '🃏 Go to table'}
+            {connected ? '🃏 Go to table' : '⏳ Connecting…'}
           </button>
         )}
         <button onClick={handleJoin} disabled={!canJoin || step === 'approving' || step === 'joining' || wrongNetwork}
@@ -592,6 +584,7 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
 
 export default function Lobby({ token, address }) {
   const { chips, joinTable, notifyDeposit } = useGame();
+  const navigate = useNavigate();
   const [tables,      setTables]      = useState({});
   const [showDeposit, setShowDeposit] = useState(false);
   const [showCreateUsdc, setShowCreateUsdc] = useState(false);
@@ -746,7 +739,7 @@ export default function Lobby({ token, address }) {
       {showCreateUsdc && (
         <CreateUsdcGameModal
           onClose={() => setShowCreateUsdc(false)}
-          onCreated={() => {}}
+          onCreated={(id) => { navigate(`/game/${id}`); setShowCreateUsdc(false); }}
         />
       )}
       {showJoinUsdc && (
