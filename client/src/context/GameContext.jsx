@@ -13,6 +13,7 @@ export function GameProvider({ children, authToken, walletAddress }) {
   const [lastHand,    setLastHand]    = useState(null);
   const [tables,      setTables]      = useState([]);
   const [error,       setError]       = useState(null);
+  const [chatLog,     setChatLog]     = useState([{ from: 'DEALER', text: 'Welcome to the table.', system: true }]);
 
   // ── Connect when authToken is available ────────────────────────────────────
   useEffect(() => {
@@ -75,6 +76,9 @@ export function GameProvider({ children, authToken, walletAddress }) {
     socket.on('tableTerminated', () => {
       setGameState(null);
       setNotification(null);
+    });
+    socket.on('chatMessage', ({ from, text }) => {
+      setChatLog(log => [...log, { from, text }]);
     });
 
     socketRef.current = socket;
@@ -150,6 +154,10 @@ export function GameProvider({ children, authToken, walletAddress }) {
     });
   }, []);
 
+  const sendChat = useCallback((text) => {
+    socketRef.current?.emit('chatMessage', { text });
+  }, []);
+
   const notifyDeposit = useCallback((netAmount) => {
     const socket = socketRef.current;
     if (!socket?.connected) {
@@ -164,8 +172,8 @@ export function GameProvider({ children, authToken, walletAddress }) {
   return (
     <GameContext.Provider value={{
       connected, gameState, chips, notification,
-      lastHand, tables, error,
-      joinTable, joinUsdcTable, leaveTable, playerAction, startGame, terminateGame, notifyDeposit, refreshTableState,
+      lastHand, tables, error, chatLog,
+      joinTable, joinUsdcTable, leaveTable, playerAction, startGame, terminateGame, notifyDeposit, refreshTableState, sendChat,
       setChips,
     }}>
       {children}

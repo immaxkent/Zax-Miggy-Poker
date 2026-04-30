@@ -420,6 +420,15 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ── Chat ──────────────────────────────────────────────────────────────────
+  socket.on('chatMessage', ({ text }) => {
+    const player = players.get(playerId);
+    if (!player?.tableId || typeof text !== 'string') return;
+    const clean = text.trim().slice(0, 200);
+    if (!clean) return;
+    io.to(player.tableId).emit('chatMessage', { from: playerId, text: clean });
+  });
+
   // ── Disconnect ────────────────────────────────────────────────────────────
   socket.on('disconnect', () => {
     console.log(`🔌 Disconnected: ${playerId}`);

@@ -98,9 +98,8 @@ function handName(cards) {
 
 // ─── Main component ────────────────────────────────────────────────────────────
 export default function PokerTable({ myAddress }) {
-  const { gameState, playerAction, leaveTable, startGame, terminateGame, lastHand } = useGame();
+  const { gameState, playerAction, leaveTable, startGame, terminateGame, lastHand, chatLog, sendChat } = useGame();
   const [handHistory,  setHandHistory]  = useState([]);
-  const [chatMessages, setChatMessages] = useState([{ from:'DEALER', text:'Welcome to the table.', system:true }]);
   const [chatInput,    setChatInput]    = useState('');
   const [handResult,   setHandResult]   = useState(null);
   const [startError,   setStartError]   = useState(null);
@@ -163,12 +162,12 @@ export default function PokerTable({ myAddress }) {
       const [addr, { won, hand }] = winner;
       const isMe = addr.toLowerCase() === (myAddress||'').toLowerCase();
       setHandHistory(h => [{ hand: lastHand.handNumber||h.length+1, who: isMe?'you':`${addr.slice(0,6)}…`, amount:won, win:true, handName:hand?.name }, ...h.slice(0,5)]);
-      setChatMessages(m => [...m, { from:'DEALER', text:`hand #${lastHand.handNumber||'—'} — ${hand?.name||'winner'} wins ${won}`, system:true }]);
+      // dealer system message is broadcast via server handComplete — no local push needed
     }
   }, [lastHand]);
 
   useEffect(() => { if (gameState?.stage && gameState.stage !== 'waiting') setStartError(null); }, [gameState?.stage]);
-  useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [chatMessages]);
+  useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [chatLog]);
   useEffect(() => { setRaiseAmt(''); }, [gameState?.currentBet]);
 
   if (!gameState) return null;
@@ -324,109 +323,74 @@ export default function PokerTable({ myAddress }) {
               ].join(', '),
             }}
           >
-            {/* Deep shadow under felt */}
+            {/* ── Inner clip div: clips the oval glow/felt to the rectangle boundary ── */}
             <div style={{
-              position:'absolute',
-              left: cx - rx - 10, top: cy - ry - 10,
-              width: (rx+10)*2,   height: (ry+10)*2,
-              borderRadius: '50%',
-              background: '#030608',
-              boxShadow: '0 20px 80px rgba(0,0,0,0.9)',
-              pointerEvents: 'none',
-            }}/>
-
-            {/* Ambient green glow */}
-            <div style={{
-              position:'absolute',
-              left: cx - rx - 70, top: cy - ry - 70,
-              width: (rx+70)*2,   height: (ry+70)*2,
-              borderRadius: '50%',
-              background: `radial-gradient(ellipse at center,rgba(0,230,118,0.10) 0%,transparent 65%)`,
-              pointerEvents: 'none',
-            }}/>
-
-            {/* Felt with neon green border */}
-            <div style={{
-              position:'absolute',
-              left: cx - rx, top: cy - ry,
-              width: rx*2, height: ry*2,
-              borderRadius: '50%',
-              background: 'radial-gradient(ellipse at 44% 40%,#0e3d1e 0%,#071c0d 58%,#040e07 100%)',
-              boxShadow: `0 0 0 2.5px ${G}, 0 0 0 7px rgba(0,230,118,0.12), 0 0 45px rgba(0,230,118,0.07)`,
-              overflow: 'hidden',
-              pointerEvents: 'none',
+              position:'absolute', inset:0,
+              borderRadius: 18,
+              overflow:'hidden',
+              pointerEvents:'none',
             }}>
-              {/* Felt texture stripes */}
+              {/* Deep shadow under felt */}
               <div style={{
-                position:'absolute', inset:0,
-                background:'repeating-linear-gradient(0deg,transparent,transparent 20px,rgba(255,255,255,0.009) 20px,rgba(255,255,255,0.009) 21px)',
+                position:'absolute',
+                left: cx - rx - 10, top: cy - ry - 10,
+                width: (rx+10)*2, height: (ry+10)*2,
+                borderRadius:'50%',
+                background:'#030608',
+                boxShadow:'0 20px 80px rgba(0,0,0,0.9)',
               }}/>
-              {/* Watermark */}
-              <div style={{
-                position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)',
-                color:'#fff', opacity:0.025, fontWeight:900,
-                fontSize: Math.max(24, rx * 0.13),
-                letterSpacing:'0.22em', userSelect:'none', whiteSpace:'nowrap',
-              }}>CRYPTO POKER</div>
-            </div>
-
-            {/* Community cards — only shown when game is running */}
-            {stage !== 'waiting' && (
+              {/* Ambient green glow */}
               <div style={{
                 position:'absolute',
-                left: cx, top: cy - ry * 0.14,
-                transform: 'translate(-50%,-50%)',
-                display:'flex', flexDirection:'column', alignItems:'center', gap:8,
-                pointerEvents:'none',
+                left: cx - rx - 70, top: cy - ry - 70,
+                width: (rx+70)*2, height: (ry+70)*2,
+                borderRadius:'50%',
+                background:`radial-gradient(ellipse at center,rgba(0,230,118,0.10) 0%,transparent 65%)`,
+              }}/>
+              {/* Felt with neon green border */}
+              <div style={{
+                position:'absolute',
+                left: cx - rx, top: cy - ry,
+                width: rx*2, height: ry*2,
+                borderRadius:'50%',
+                background:'radial-gradient(ellipse at 44% 40%,#0e3d1e 0%,#071c0d 58%,#040e07 100%)',
+                boxShadow:`0 0 0 2.5px ${G}, 0 0 0 7px rgba(0,230,118,0.12), 0 0 45px rgba(0,230,118,0.07)`,
+                overflow:'hidden',
               }}>
-                <div style={{ display:'flex', gap:6 }}>
-                  {[0,1,2,3,4].map(i => community[i] ? (
-                    <div key={i}><Card card={community[i]} size="md"/></div>
-                  ) : (
-                    <div key={i} style={{
-                      width:54, height:76, borderRadius:7,
-                      border:'1px solid rgba(255,255,255,0.04)',
-                      background:'rgba(0,0,0,0.18)',
-                    }}/>
-                  ))}
-                </div>
-                {streetLabel && (
-                  <div style={{ color:`${G}70`, fontSize:10, fontWeight:700, letterSpacing:'0.22em' }}>
-                    {streetLabel}
+                <div style={{ position:'absolute', inset:0, background:'repeating-linear-gradient(0deg,transparent,transparent 20px,rgba(255,255,255,0.009) 20px,rgba(255,255,255,0.009) 21px)' }}/>
+                <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', color:'#fff', opacity:0.025, fontWeight:900, fontSize:Math.max(24,rx*0.13), letterSpacing:'0.22em', userSelect:'none', whiteSpace:'nowrap' }}>CRYPTO POKER</div>
+              </div>
+              {/* Community cards */}
+              {stage !== 'waiting' && (
+                <div style={{ position:'absolute', left:cx, top:cy - ry*0.14, transform:'translate(-50%,-50%)', display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
+                  <div style={{ display:'flex', gap:6 }}>
+                    {[0,1,2,3,4].map(i => community[i] ? (
+                      <div key={i}><Card card={community[i]} size="md"/></div>
+                    ) : (
+                      <div key={i} style={{ width:54, height:76, borderRadius:7, border:'1px solid rgba(255,255,255,0.04)', background:'rgba(0,0,0,0.18)' }}/>
+                    ))}
                   </div>
-                )}
-              </div>
-            )}
-
-            {/* Pot */}
-            {pot > 0 && stage !== 'waiting' && (
-              <div style={{
-                position:'absolute',
-                left: cx, top: cy + ry * 0.26,
-                transform: 'translate(-50%,-50%)',
-                textAlign: 'center', pointerEvents:'none',
-              }}>
-                <div style={{ color:'rgba(255,255,255,0.18)', fontSize:9, fontWeight:700, letterSpacing:'0.22em', marginBottom:2 }}>MAIN POT</div>
-                <div style={{ color:G, fontWeight:900, fontSize:Math.max(20, rx*0.09), fontFamily:'Space Mono,monospace', textShadow:`0 0 20px ${G}55` }}>
-                  ≡ {pot}
+                  {streetLabel && <div style={{ color:`${G}70`, fontSize:10, fontWeight:700, letterSpacing:'0.22em' }}>{streetLabel}</div>}
                 </div>
-              </div>
-            )}
-
-            {/* Waiting text */}
-            {stage === 'waiting' && (
-              <div style={{
-                position:'absolute', left:cx, top:cy,
-                transform:'translate(-50%,-50%)',
-                textAlign:'center', pointerEvents:'none',
-              }}>
-                <div style={{ color:'rgba(255,255,255,0.1)', fontSize:12, fontWeight:700, letterSpacing:'0.24em' }}>
-                  {canManage && !isHost ? 'WAITING FOR HOST…' : canManage && isHost ? 'PRESS START GAME' : 'WAITING FOR PLAYERS…'}
+              )}
+              {/* Pot */}
+              {pot > 0 && stage !== 'waiting' && (
+                <div style={{ position:'absolute', left:cx, top:cy+ry*0.26, transform:'translate(-50%,-50%)', textAlign:'center' }}>
+                  <div style={{ color:'rgba(255,255,255,0.18)', fontSize:9, fontWeight:700, letterSpacing:'0.22em', marginBottom:2 }}>MAIN POT</div>
+                  <div style={{ color:G, fontWeight:900, fontSize:Math.max(20,rx*0.09), fontFamily:'Space Mono,monospace', textShadow:`0 0 20px ${G}55` }}>≡ {pot}</div>
                 </div>
-              </div>
-            )}
+              )}
+              {/* Waiting text */}
+              {stage === 'waiting' && (
+                <div style={{ position:'absolute', left:cx, top:cy, transform:'translate(-50%,-50%)', textAlign:'center' }}>
+                  <div style={{ color:'rgba(255,255,255,0.1)', fontSize:12, fontWeight:700, letterSpacing:'0.24em' }}>
+                    {canManage && !isHost ? 'WAITING FOR HOST…' : canManage && isHost ? 'PRESS START GAME' : 'WAITING FOR PLAYERS…'}
+                  </div>
+                </div>
+              )}
+            </div>{/* end inner clip div */}
 
-            {/* ── Player stations — each is one self-contained block at 1:1 px ── */}
+            {/* ── Player stations — outside the clip div so labels never get cropped ── */}
             {players.map((player, i) => {
               const { ax, ay, cos, sin } = seatPos(i, players.length);
               const isMe = (player.address||'').toLowerCase() === me;
@@ -727,11 +691,16 @@ export default function PokerTable({ myAddress }) {
               <span style={{ color:'#334155', fontSize:10, fontWeight:700, letterSpacing:'0.18em' }}>// TABLE CHAT</span>
             </div>
             <div ref={chatRef} style={{ flex:1, overflowY:'auto', padding:'8px 14px', display:'flex', flexDirection:'column', gap:5 }}>
-              {chatMessages.map((m,i) => (
+              {chatLog.map((m,i) => (
                 <div key={i} style={{ fontSize:11, lineHeight:1.5 }}>
                   {m.system
                     ? <span style={{ color:'#1e3050', fontFamily:'Space Mono,monospace', fontSize:10 }}>{m.text}</span>
-                    : <><span style={{ color:G, fontWeight:700, fontSize:10, marginRight:5 }}>{m.from}:</span><span style={{ color:'#94a3b8' }}>{m.text}</span></>
+                    : <>
+                        <span style={{ color: (m.from||'').toLowerCase()===me ? G : '#a855f7', fontWeight:700, fontSize:10, marginRight:5 }}>
+                          {(m.from||'').toLowerCase()===me ? 'YOU' : `${(m.from||'').slice(0,8)}…`}:
+                        </span>
+                        <span style={{ color:'#94a3b8' }}>{m.text}</span>
+                      </>
                   }
                 </div>
               ))}
@@ -742,7 +711,7 @@ export default function PokerTable({ myAddress }) {
                 onChange={e => setChatInput(e.target.value)}
                 onKeyDown={e => {
                   if (e.key === 'Enter' && chatInput.trim()) {
-                    setChatMessages(m => [...m, { from: myAddress ? `${myAddress.slice(0,6)}…` : 'YOU', text: chatInput.trim() }]);
+                    sendChat(chatInput.trim());
                     setChatInput('');
                   }
                 }}
@@ -752,7 +721,7 @@ export default function PokerTable({ myAddress }) {
               <button
                 onClick={() => {
                   if (!chatInput.trim()) return;
-                  setChatMessages(m => [...m, { from: myAddress ? `${myAddress.slice(0,6)}…` : 'YOU', text: chatInput.trim() }]);
+                  sendChat(chatInput.trim());
                   setChatInput('');
                 }}
                 style={{ width:32, height:32, borderRadius:6, background:`${G}18`, border:`1px solid ${G}30`, color:G, cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center' }}
