@@ -739,7 +739,7 @@ export default function Lobby({ token, address }) {
       {showCreateUsdc && (
         <CreateUsdcGameModal
           onClose={() => setShowCreateUsdc(false)}
-          onCreated={(id) => { navigate(`/game/${id}`); setShowCreateUsdc(false); }}
+          onCreated={(id) => { navigate(`/game/${id}`, { state: { justCreated: true } }); setShowCreateUsdc(false); }}
         />
       )}
       {showJoinUsdc && (

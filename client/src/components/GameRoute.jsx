@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Navigate, useNavigate } from 'react-router-dom';
+import { useParams, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useReadContract, useAccount } from 'wagmi';
 import { ZAX_MIGGY_VAULT_ADDRESS, ZAX_MIGGY_VAULT_ABI } from '../utils/web3Config';
 import { useGame } from '../context/GameContext';
@@ -22,6 +22,8 @@ export default function GameRoute() {
   const { gameId: gameIdStr } = useParams();
   const gameId = parseInt(gameIdStr, 10);
   const navigate = useNavigate();
+  const location = useLocation();
+  const justCreated = location.state?.justCreated === true;
   const { address } = useAccount();
   const { connected, joinUsdcTable, gameState } = useGame();
   const [joinError, setJoinError] = useState(null);
@@ -81,7 +83,7 @@ export default function GameRoute() {
   if (vaultReady) {
     if (isLoading) return <CenteredMsg>Verifying access…</CenteredMsg>;
     if (readError) return <CenteredMsg isError>Could not verify game access — make sure you're on Base network.</CenteredMsg>;
-    if (gameData && !isPlayer) return <Navigate to="/lobby" replace />;
+    if (gameData && !isPlayer && !justCreated) return <Navigate to="/lobby" replace />;
     if (finished) return <CenteredMsg>Game #{gameId} has finished.</CenteredMsg>;
   }
 
