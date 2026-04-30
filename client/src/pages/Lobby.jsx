@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAccount, useWriteContract, useReadContract } from 'wagmi';
+import { useAccount, useWriteContract, useReadContract, useReadContracts } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import {
   SERVER_URL, SERVER_API_KEY,
@@ -13,6 +13,19 @@ import { useGame } from '../context/GameContext';
 
 const G = '#00e676';
 const P = '#ff0070';
+
+// ─── Deterministic 3-word game names ──────────────────────────────────────────
+const W1 = ['neon','shadow','golden','midnight','burning','frozen','electric','crimson','iron','silver','dark','wild','silent','blazing','cosmic','phantom','thunder','velvet','toxic','broken'];
+const W2 = ['wolf','ace','king','blade','storm','ghost','viper','falcon','shark','dragon','joker','dealer','crown','knight','arrow','flame','raven','tiger','cobra','baron'];
+const W3 = ['rising','calling','hunting','stacking','running','crushing','folding','betting','holding','shoving','bluffing','raising','chasing','grinding','sweeping','dealing','winning','banking','staking','loading'];
+
+export function gameIdToName(id) {
+  const n = Number(id);
+  const a = W1[n % W1.length];
+  const b = W2[Math.floor(n / W1.length) % W2.length];
+  const c = W3[Math.floor(n / (W1.length * W2.length)) % W3.length];
+  return `${c} ${a} ${b}`;
+}
 
 const STAKE_CONFIGS = {
   'micro-1': { name: 'Micro',       blinds: '1/2',     color: G,        tag: 'NLH · 6-MAX' },
@@ -351,18 +364,31 @@ function CreateUsdcGameModal({ onClose, onCreated }) {
   );
 }
 
-function JoinUsdcGameModal({ onClose, onJoined }) {
+function JoinUsdcGameModal({ onClose, onJoined, openGames = [] }) {
   const { address, chainId } = useAccount();
   const { connected } = useGame();
   const navigate = useNavigate();
-  const [gameIdInput, setGameIdInput] = useState('');
+  const [input, setInput] = useState('');
   const [step, setStep] = useState('input');
   const [error, setError] = useState(null);
   const { writeContractAsync } = useWriteContract();
   const wrongNetwork = chainId != null && Number(chainId) !== CHAIN_ID;
 
-  const gameId = gameIdInput.trim() === '' ? null : (parseInt(gameIdInput, 10) | 0);
-  const validGameId = gameId != null && gameId >= 0 ? gameId : null;
+  // Resolve input: accept game ID number OR 3-word name
+  const validGameId = useMemo(() => {
+    const t = input.trim();
+    if (!t) return null;
+    // numeric?
+    if (/^\d+$/.test(t)) {
+      const n = parseInt(t, 10);
+      return n >= 0 ? n : null;
+    }
+    // name lookup
+    const match = openGames.find(g => g.name.toLowerCase() === t.toLowerCase());
+    return match ? match.id : null;
+  }, [input, openGames]);
+
+  const gameId = validGameId;
 
   const { data: rawGameData, error: readError } = useReadContract({
     address: usdcVaultReady() && validGameId != null ? ZAX_MIGGY_VAULT_ADDRESS : undefined,
@@ -420,14 +446,20 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
   return (
     <Modal onClose={onClose} title="Join USDC Table" accent="#00b4d8">
       <div style={{ color: '#475569', fontSize: 12, lineHeight: 1.6, marginBottom: 20 }}>
-        Enter the Game ID from the table creator to join. You will deposit the table cost in USDC.
+        Enter a game ID <span style={{ color: '#334155' }}>(e.g. 2)</span> or 3-word name <span style={{ color: '#334155' }}>(e.g. rising neon wolf)</span> to join.
       </div>
       {wrongNetwork && (
         <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: 12, marginBottom: 16, color: '#f87171', fontSize: 12 }}>
           Switch to {CHAIN_ID === 8453 ? 'Base' : `Chain ID ${CHAIN_ID}`}
         </div>
       )}
-      <InputField label="GAME ID" type="number" value={gameIdInput} onChange={e => setGameIdInput(e.target.value)} placeholder="0" />
+      <InputField label="GAME ID OR NAME" value={input} onChange={e => setInput(e.target.value)} placeholder="e.g. 2 or rising neon wolf" />
+      {input.trim() && validGameId === null && (
+        <div style={{ color: '#f59e0b', fontSize: 11, marginBottom: 10, marginTop: -10 }}>No matching game found.</div>
+      )}
+      {validGameId !== null && !(/^\d+$/.test(input.trim())) && (
+        <div style={{ color: G, fontSize: 11, marginBottom: 10, marginTop: -10 }}>✓ Resolved to game #{validGameId}</div>
+      )}
       {validGameId != null && !gameData && !readError && (
         <div style={{ color: '#475569', fontSize: 12, marginBottom: 12 }}>Loading game details…</div>
       )}
@@ -501,6 +533,47 @@ export default function Lobby({ token, address }) {
   const [joinError, setJoinError] = useState(null);
   const [joining, setJoining] = useState(null);
   const [activeFilter, setActiveFilter] = useState('ALL');
+
+  // ── On-chain USDC game list ──────────────────────────────────────────────────
+  const { data: nextGameIdData } = useReadContract({
+    address: usdcVaultReady() ? ZAX_MIGGY_VAULT_ADDRESS : undefined,
+    abi: ZAX_MIGGY_VAULT_ABI,
+    functionName: 'nextGameId',
+    watch: true,
+  });
+  const nextGameId = nextGameIdData ? Number(nextGameIdData) : 0;
+  const scanIds = useMemo(() => Array.from({ length: Math.min(nextGameId, 30) }, (_, i) => i), [nextGameId]);
+
+  const { data: allGamesRaw } = useReadContracts({
+    contracts: usdcVaultReady() ? scanIds.map(id => ({
+      address: ZAX_MIGGY_VAULT_ADDRESS,
+      abi: ZAX_MIGGY_VAULT_ABI,
+      functionName: 'getGame',
+      args: [BigInt(id)],
+    })) : [],
+    watch: true,
+  });
+
+  const openGames = useMemo(() => {
+    if (!allGamesRaw) return [];
+    return allGamesRaw.map((res, i) => {
+      const raw = res?.result;
+      if (!raw) return null;
+      const arr = Array.isArray(raw) ? raw : [raw.players, raw.playerCount, raw.depositAmount, raw.createdAt, raw.finished, raw.winner];
+      const [players, playerCount, depositAmount, , finished] = arr;
+      const count = Number(playerCount || 0);
+      if (count === 0 || finished) return null;
+      return {
+        id: i,
+        name: gameIdToName(i),
+        players: count,
+        maxPlayers: 8,
+        deposit: depositAmount ? Number(formatUnits(depositAmount, USDC_DECIMALS)) : 0,
+        finished: !!finished,
+        creator: Array.isArray(players) && players[0] ? String(players[0]) : null,
+      };
+    }).filter(Boolean).filter(g => !g.finished && g.players < 8);
+  }, [allGamesRaw]);
 
   useEffect(() => {
     async function fetchTables() {
@@ -629,42 +702,92 @@ export default function Lobby({ token, address }) {
           </table>
         )}
 
-        {/* USDC section */}
+        {/* USDC / User games section */}
         <div style={{ marginTop: usdcOnlyMode ? 32 : 48, paddingTop: usdcOnlyMode ? 0 : 32, borderTop: usdcOnlyMode ? 'none' : '1px solid rgba(255,255,255,0.05)' }}>
-          {usdcOnlyMode && (
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ color: '#334155', fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', marginBottom: 8 }}>// ON-CHAIN</div>
-              <h2 style={{ color: '#fff', fontWeight: 900, fontSize: 24, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                USDC <span style={{ color: G }}>GAMES</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <div>
+              <div style={{ color: '#334155', fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', marginBottom: 6 }}>// ON-CHAIN · BASE</div>
+              <h2 style={{ color: '#fff', fontWeight: 900, fontSize: 22, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                USER <span style={{ color: G }}>GAMES</span>
+                {openGames.length > 0 && (
+                  <span style={{ color: '#334155', fontSize: 13, fontWeight: 600, marginLeft: 12 }}>{openGames.length} OPEN</span>
+                )}
               </h2>
-              <p style={{ color: '#334155', fontSize: 13, marginTop: 10, maxWidth: 540, lineHeight: 1.6 }}>
-                Create a game with your chosen buy-in in USDC, or join an existing game by ID. Funds are held on-chain. 10% fee on winner payout.
-              </p>
             </div>
-          )}
-          {!usdcOnlyMode && (
-            <div style={{ color: '#475569', fontSize: 12, marginBottom: 20, fontWeight: 600, letterSpacing: '0.1em' }}>
-              // USDC TABLES (BASE MAINNET)
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setShowCreateUsdc(true)} style={{
+                padding: '10px 22px', borderRadius: 8,
+                background: 'linear-gradient(135deg, #1d4ed8, #00b4d8)',
+                color: '#fff', fontSize: 12, fontWeight: 700, letterSpacing: '0.1em',
+                cursor: 'pointer', border: 'none',
+              }}>+ CREATE GAME</button>
+              <button onClick={() => setShowJoinUsdc(true)} style={{
+                padding: '10px 22px', borderRadius: 8,
+                background: 'rgba(0,180,216,0.1)', border: '1px solid rgba(0,180,216,0.3)',
+                color: '#00b4d8', fontSize: 12, fontWeight: 700, letterSpacing: '0.1em',
+                cursor: 'pointer',
+              }}>JOIN BY ID / NAME</button>
             </div>
-          )}
-          <div style={{ display: 'flex', gap: 12 }}>
-            <button onClick={() => setShowCreateUsdc(true)} style={{
-              padding: '12px 28px', borderRadius: 8,
-              background: 'linear-gradient(135deg, #1d4ed8, #00b4d8)',
-              color: '#fff', fontSize: 13, fontWeight: 700, letterSpacing: '0.1em',
-              cursor: 'pointer', border: 'none',
-            }}>
-              CREATE GAME
-            </button>
-            <button onClick={() => setShowJoinUsdc(true)} style={{
-              padding: '12px 28px', borderRadius: 8,
-              background: 'rgba(0,180,216,0.1)', border: '1px solid rgba(0,180,216,0.3)',
-              color: '#00b4d8', fontSize: 13, fontWeight: 700, letterSpacing: '0.1em',
-              cursor: 'pointer',
-            }}>
-              JOIN GAME
-            </button>
           </div>
+
+          {/* Open game cards */}
+          {usdcVaultReady() && openGames.length > 0 ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+              {openGames.map(game => (
+                <div key={game.id} style={{
+                  background: '#0d1520', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14,
+                  padding: 18, transition: 'all 0.2s', cursor: 'pointer',
+                }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = `${G}40`; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; e.currentTarget.style.transform = 'none'; }}
+                  onClick={() => navigate(`/game/${game.id}`)}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                    <div style={{
+                      fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', color: G,
+                      background: `${G}15`, border: `1px solid ${G}30`, padding: '2px 8px', borderRadius: 4,
+                    }}>OPEN · {game.players}/8</div>
+                    <div style={{ color: '#334155', fontSize: 10, fontFamily: 'Space Mono, monospace' }}>#{game.id}</div>
+                  </div>
+                  <div style={{ color: '#fff', fontWeight: 800, fontSize: 15, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 14 }}>
+                    {game.name}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ color: '#334155', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', marginBottom: 3 }}>BUY-IN</div>
+                      <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 14, fontFamily: 'Space Mono, monospace' }}>{game.deposit} USDC</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ color: '#334155', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', marginBottom: 3 }}>HOST</div>
+                      <div style={{ color: '#475569', fontSize: 11, fontFamily: 'Space Mono, monospace' }}>
+                        {game.creator ? `${game.creator.slice(0,6)}…${game.creator.slice(-4)}` : '—'}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={e => { e.stopPropagation(); navigate(`/game/${game.id}`); }}
+                    style={{
+                      width: '100%', marginTop: 14, padding: '9px', borderRadius: 7,
+                      background: `${G}18`, border: `1px solid ${G}40`, color: G,
+                      fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', cursor: 'pointer',
+                    }}>
+                    JOIN TABLE ↗
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : usdcVaultReady() ? (
+            <div style={{
+              padding: '32px 24px', borderRadius: 12, textAlign: 'center',
+              background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.07)',
+            }}>
+              <div style={{ color: '#334155', fontSize: 13, marginBottom: 8 }}>No open games right now.</div>
+              <div style={{ color: '#1e3050', fontSize: 12 }}>Create one to get started.</div>
+            </div>
+          ) : (
+            <div style={{ color: '#334155', fontSize: 12, padding: '16px 0' }}>
+              Connect to Base mainnet to see and join USDC games.
+            </div>
+          )}
         </div>
       </div>
 
@@ -709,7 +832,7 @@ export default function Lobby({ token, address }) {
 
       {showDeposit && <DepositModal onClose={() => setShowDeposit(false)} onDeposited={net => { notifyDeposit(net); setShowDeposit(false); }} />}
       {showCreateUsdc && <CreateUsdcGameModal onClose={() => setShowCreateUsdc(false)} onCreated={id => { navigate(`/game/${id}`, { state: { justCreated: true } }); setShowCreateUsdc(false); }} />}
-      {showJoinUsdc && <JoinUsdcGameModal onClose={() => setShowJoinUsdc(false)} />}
+      {showJoinUsdc && <JoinUsdcGameModal onClose={() => setShowJoinUsdc(false)} openGames={openGames} />}
     </div>
   );
 }

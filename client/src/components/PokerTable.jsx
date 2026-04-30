@@ -3,6 +3,7 @@ import { useReadContract } from 'wagmi';
 import { formatUnits } from 'viem';
 import { useGame } from '../context/GameContext';
 import { ZAX_MIGGY_VAULT_ADDRESS, ZAX_MIGGY_VAULT_ABI, USDC_DECIMALS } from '../utils/web3Config';
+import { gameIdToName } from '../pages/Lobby';
 
 const G  = '#00e676';
 const P  = '#ff0070';
@@ -479,7 +480,15 @@ export default function PokerTable({ myAddress }) {
           </div>
         )}
         <span style={{ color: '#475569' }}>·</span>
-        <span style={{ color: '#94a3b8' }}>{tableConfig?.name?.toUpperCase() || 'TABLE'}</span>
+        <span style={{ color: '#94a3b8', textTransform: 'uppercase' }}>
+          {isUsdcTable && validGameId != null
+            ? gameIdToName(validGameId)
+            : (tableConfig?.name?.toUpperCase() || 'TABLE')}
+        </span>
+        <span style={{ color: '#475569' }}>·</span>
+        <span style={{ color: '#334155', fontFamily: 'Space Mono, monospace', fontSize: 10 }}>
+          {isUsdcTable && validGameId != null ? `GAME #${validGameId}` : 'NLH 6-MAX'}
+        </span>
         <span style={{ color: '#475569' }}>·</span>
         <span style={{ color: '#94a3b8' }}>NLH 6-MAX</span>
         <span style={{ color: '#475569' }}>·</span>
@@ -551,7 +560,10 @@ export default function PokerTable({ myAddress }) {
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     {[0,1,2,3,4].map(i => (
                       <div key={i} style={{ transition: 'transform 0.3s', transform: community[i] ? 'scale(1)' : 'scale(0.95)' }}>
-                        <Card card={community[i]} hidden={!community[i]} />
+                        {community[i]
+                          ? <Card card={community[i]} />
+                          : <div style={{ width: 56, height: 80, borderRadius: 8, border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)' }} />
+                        }
                       </div>
                     ))}
                   </div>
