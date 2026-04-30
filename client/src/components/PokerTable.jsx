@@ -74,14 +74,11 @@ function seatPos(idx, total) {
   const deg = 90 + (idx / total) * 360;
   const rad = (deg * Math.PI) / 180;
   const cos = Math.cos(rad), sin = Math.sin(rad);
-  // Avatar sits ON the rim
-  const ax = OX + OA * cos;
-  const ay = OY + OB * sin;
-  // Info label pushed further out (proportional to ellipse curvature)
-  const push = 62;
-  const lx = ax + push * cos;
-  const ly = ay + push * sin;
-  return { ax, ay, lx, ly, cos, sin };
+  // Avatar pushed outside the oval rim
+  const push = 46;
+  const ax = OX + (OA + push) * cos;
+  const ay = OY + (OB + push) * sin;
+  return { ax, ay, cos, sin };
 }
 
 // ─── Avatar gradients ──────────────────────────────────────────────────────────
@@ -101,65 +98,31 @@ const initial    = a => a ? a.slice(2,3).toUpperCase() : '?';
 // ─── Player station ────────────────────────────────────────────────────────────
 function PlayerStation({ player, idx, total, myAddress }) {
   const isMe = (player.address||'').toLowerCase() === (myAddress||'').toLowerCase();
-  const { ax, ay, lx, ly } = seatPos(idx, total);
+  const { ax, ay, cos, sin } = seatPos(idx, total);
   const grad = avatarGrad(player.address);
   const init = initial(player.address);
 
-  // Label alignment based on where the station is relative to center
-  const onLeft  = lx < OX - 20;
-  const onRight = lx > OX + 20;
-  const onBottom = ly > OY + 20;
-  const onTop    = ly < OY - 20;
+  // Cards peek toward the oval center (inward direction)
+  const cardOffX = -cos * 26;
+  const cardOffY = -sin * 26;
 
   return (
     <>
-      {/* Avatar circle */}
+      {/* Avatar + cards group */}
       <div style={{
         position: 'absolute',
         left: ax, top: ay,
         transform: 'translate(-50%,-50%)',
         zIndex: 20,
       }}>
-        <div style={{
-          width: AVATAR_R*2, height: AVATAR_R*2, borderRadius: '50%',
-          background: grad,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 16, fontWeight: 900, color: '#000',
-          border: player.isAction
-            ? '2.5px solid #fbbf24'
-            : isMe ? `2.5px solid ${G}` : '2px solid rgba(255,255,255,0.18)',
-          boxShadow: player.isAction
-            ? '0 0 0 4px rgba(251,191,36,0.25), 0 0 20px rgba(251,191,36,0.4)'
-            : '0 3px 12px rgba(0,0,0,0.6)',
-          opacity: player.folded ? 0.38 : 1,
-          transition: 'box-shadow 0.3s, border-color 0.3s, opacity 0.3s',
-          cursor: 'default',
-        }}>
-          {init}
-        </div>
-        {/* Dealer button */}
-        {player.isDealer && (
-          <div style={{
-            position:'absolute', top:-5, right:-5,
-            width:17, height:17, borderRadius:'50%',
-            background:'#fff', border:'1px solid #ccc',
-            display:'flex', alignItems:'center', justifyContent:'center',
-            fontSize:8, fontWeight:900, color:'#000',
-          }}>D</div>
-        )}
-        {/* All-in badge */}
-        {player.allIn && !player.folded && (
-          <div style={{
-            position:'absolute', bottom:-8, left:'50%', transform:'translateX(-50%)',
-            background:'#dc2626', color:'#fff', fontSize:7, fontWeight:800,
-            padding:'1px 5px', borderRadius:3, whiteSpace:'nowrap', letterSpacing:'0.06em',
-          }}>ALL-IN</div>
-        )}
-        {/* Cards peeking above avatar when in hand */}
+        {/* Cards peeking toward center */}
         {(player.cardCount > 0 || (player.cards && player.cards.length > 0)) && !player.folded && (
           <div style={{
-            position:'absolute', top:-28, left:'50%', transform:'translateX(-50%)',
-            display:'flex', gap:3,
+            position:'absolute',
+            left: `calc(50% + ${cardOffX}px)`,
+            top: `calc(50% + ${cardOffY}px)`,
+            transform: 'translate(-50%,-50%)',
+            display:'flex', gap:2, zIndex:19,
           }}>
             {player.cards && player.cards.length > 0
               ? player.cards.map((c,i) => <Card key={i} card={c} size="sm" />)
@@ -167,38 +130,78 @@ function PlayerStation({ player, idx, total, myAddress }) {
             }
           </div>
         )}
+
+        <div style={{
+          width: AVATAR_R*2, height: AVATAR_R*2, borderRadius: '50%',
+          background: grad,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 17, fontWeight: 900, color: '#fff',
+          textShadow: '0 1px 4px rgba(0,0,0,0.6)',
+          border: player.isAction
+            ? '3px solid #fbbf24'
+            : isMe ? `2.5px solid ${G}` : '2px solid rgba(255,255,255,0.15)',
+          boxShadow: player.isAction
+            ? '0 0 0 5px rgba(251,191,36,0.18), 0 0 28px rgba(251,191,36,0.5)'
+            : isMe
+              ? `0 0 0 3px rgba(0,230,118,0.15), 0 4px 16px rgba(0,0,0,0.7)`
+              : '0 4px 16px rgba(0,0,0,0.7)',
+          opacity: player.folded ? 0.4 : 1,
+          transition: 'box-shadow 0.3s, border-color 0.3s, opacity 0.3s',
+          cursor: 'default',
+          position: 'relative', zIndex: 21,
+        }}>
+          {init}
+        </div>
+        {/* Dealer button */}
+        {player.isDealer && (
+          <div style={{
+            position:'absolute', top:-4, right:-4, zIndex:22,
+            width:16, height:16, borderRadius:'50%',
+            background:'#fff', border:'1.5px solid #aaa',
+            display:'flex', alignItems:'center', justifyContent:'center',
+            fontSize:8, fontWeight:900, color:'#111',
+            boxShadow:'0 1px 4px rgba(0,0,0,0.5)',
+          }}>D</div>
+        )}
+        {/* All-in badge */}
+        {player.allIn && !player.folded && (
+          <div style={{
+            position:'absolute', bottom:-9, left:'50%', transform:'translateX(-50%)', zIndex:22,
+            background:'#dc2626', color:'#fff', fontSize:7, fontWeight:800,
+            padding:'1px 5px', borderRadius:3, whiteSpace:'nowrap', letterSpacing:'0.06em',
+          }}>ALL-IN</div>
+        )}
       </div>
 
-      {/* Info label */}
+      {/* Info label — always directly below the avatar */}
       <div style={{
         position: 'absolute',
-        left: lx, top: ly,
-        transform: 'translate(-50%,-50%)',
+        left: ax,
+        top: ay + AVATAR_R + 7,
+        transform: 'translateX(-50%)',
         zIndex: 18,
         textAlign: 'center',
         pointerEvents: 'none',
       }}>
         <div style={{
           display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 1,
-          padding: '4px 8px', borderRadius: 8,
-          background: isMe ? 'rgba(0,230,118,0.1)' : 'rgba(6,10,20,0.82)',
-          border: `1px solid ${isMe ? G+'28' : 'rgba(255,255,255,0.07)'}`,
-          backdropFilter: 'blur(6px)',
-          minWidth: 64,
+          padding: '3px 9px 4px', borderRadius: 8,
+          background: isMe ? 'rgba(0,230,118,0.08)' : 'rgba(4,8,16,0.88)',
+          border: `1px solid ${isMe ? G+'30' : 'rgba(255,255,255,0.07)'}`,
+          backdropFilter: 'blur(8px)',
+          minWidth: 62,
         }}>
           <div style={{
-            fontSize: 9, fontWeight: 700, color: isMe ? G : '#94a3b8',
-            fontFamily:'Space Mono,monospace', letterSpacing:'0.04em',
+            fontSize: 9, fontWeight: 800,
+            color: isMe ? G : '#e2e8f0',
+            fontFamily:'Space Mono,monospace', letterSpacing:'0.05em',
             maxWidth: 72, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
           }}>
-            {isMe ? 'YOU' : `${player.address.slice(0,4)}…${player.address.slice(-3)}`}
+            {isMe ? 'YOU' : `${(player.address||'').slice(0,5)}…${(player.address||'').slice(-3)}`}
           </div>
           <div style={{ fontSize:11, fontWeight:700, color:'#fbbf24', fontFamily:'Space Mono,monospace' }}>
             ≡ {player.chips}
           </div>
-          {player.bet > 0 && (
-            <div style={{ fontSize:9, color: G, fontFamily:'Space Mono,monospace' }}>+{player.bet}</div>
-          )}
           {player.folded && (
             <div style={{ fontSize:8, color:'#475569', fontWeight:800, letterSpacing:'0.1em' }}>FOLD</div>
           )}
@@ -208,17 +211,17 @@ function PlayerStation({ player, idx, total, myAddress }) {
         </div>
       </div>
 
-      {/* Bet chip — positioned between avatar and center */}
+      {/* Bet chip — halfway between avatar and table center */}
       {player.bet > 0 && (
         <div style={{
           position: 'absolute',
-          left: OX + (ax - OX) * 0.45,
-          top:  OY + (ay - OY) * 0.45,
+          left: OX + (ax - OX) * 0.48,
+          top:  OY + (ay - OY) * 0.48,
           transform: 'translate(-50%,-50%)',
           zIndex: 16,
         }}>
           <div style={{
-            width:26, height:26, borderRadius:'50%',
+            minWidth:28, height:28, borderRadius:14, padding:'0 6px',
             background:'linear-gradient(135deg,#fbbf24,#f59e0b)',
             border:'2px solid #92400e',
             display:'flex', alignItems:'center', justifyContent:'center',
@@ -238,37 +241,37 @@ function PlayerStation({ player, idx, total, myAddress }) {
 function OvalTable({ children }) {
   return (
     <>
-      {/* Ambient glow behind table */}
+      {/* Ambient glow */}
       <div style={{
         position:'absolute',
-        left: OX - OA - 20, top: OY - OB - 20,
-        width: (OA + 20)*2, height: (OB + 20)*2,
+        left: OX - OA - 50, top: OY - OB - 50,
+        width: (OA + 50)*2, height: (OB + 50)*2,
         borderRadius:'50%',
-        background: 'radial-gradient(ellipse at center, rgba(0,100,40,0.18) 0%, transparent 70%)',
+        background: `radial-gradient(ellipse at center, rgba(0,230,118,0.14) 0%, transparent 65%)`,
         pointerEvents:'none',
       }}/>
-      {/* Outer rail */}
+      {/* Dark shadow base */}
+      <div style={{
+        position:'absolute',
+        left: OX - OA - 8, top: OY - OB - 8,
+        width: (OA+8)*2, height: (OB+8)*2,
+        borderRadius:'50%',
+        background:'#040a0d',
+        boxShadow:'0 30px 100px rgba(0,0,0,0.95)',
+      }}/>
+      {/* Felt with neon green border */}
       <div style={{
         position:'absolute',
         left: OX - OA, top: OY - OB,
         width: OA*2, height: OB*2,
         borderRadius:'50%',
-        background:'linear-gradient(160deg,#3d2006,#1a0b02)',
-        boxShadow:'0 0 0 8px #0d0500, 0 30px 90px rgba(0,0,0,0.85)',
-      }}/>
-      {/* Felt inner */}
-      <div style={{
-        position:'absolute',
-        left: OX - OA + 12, top: OY - OB + 12,
-        width: (OA - 12)*2, height: (OB - 12)*2,
-        borderRadius:'50%',
         background:'radial-gradient(ellipse at 45% 38%, #0e3d1e 0%, #071c0d 55%, #040e07 100%)',
-        boxShadow:'inset 0 3px 24px rgba(0,0,0,0.55)',
+        boxShadow:`0 0 0 2px ${G}, 0 0 0 6px rgba(0,230,118,0.15), 0 0 40px rgba(0,230,118,0.1), inset 0 3px 24px rgba(0,0,0,0.5)`,
         overflow:'hidden',
       }}>
-        {/* Subtle felt texture line */}
+        {/* Subtle felt texture */}
         <div style={{
-          position:'absolute', inset:0, borderRadius:'50%',
+          position:'absolute', inset:0,
           background:'repeating-linear-gradient(0deg,transparent,transparent 18px,rgba(255,255,255,0.012) 18px,rgba(255,255,255,0.012) 19px)',
           pointerEvents:'none',
         }}/>
@@ -279,7 +282,7 @@ function OvalTable({ children }) {
           userSelect:'none', pointerEvents:'none', whiteSpace:'nowrap',
         }}>CRYPTO POKER</div>
       </div>
-      {/* Children go on TOP of the felt (absolute relative to stage) */}
+      {/* Children on top */}
       {children}
     </>
   );
@@ -546,7 +549,7 @@ export default function PokerTable({ myAddress }) {
         <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
 
           {/* Stage wrapper — fills available space, stage is scaled inside */}
-          <div ref={stageWrapRef} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', position:'relative' }}>
+          <div ref={stageWrapRef} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', position:'relative', margin:'8px 10px', borderRadius:16, background:'#060a10', border:'1px solid rgba(255,255,255,0.04)' }}>
             <div style={{
               width: SW, height: SH,
               transform: `scale(${scale})`,
@@ -564,12 +567,13 @@ export default function PokerTable({ myAddress }) {
                 }}>
                   <div style={{ display:'flex', gap:8 }}>
                     {[0,1,2,3,4].map(i=>(
-                      <div key={i} style={{ transition:'transform 0.3s', transform:community[i]?'scale(1)':'scale(0.96)' }}>
-                        {community[i]
-                          ? <Card card={community[i]} size="md"/>
-                          : <div style={{ width:54, height:76, borderRadius:6, border:'1px solid rgba(255,255,255,0.07)', background:'rgba(255,255,255,0.02)' }}/>
-                        }
-                      </div>
+                      community[i] ? (
+                        <div key={i} style={{ transition:'transform 0.3s', transform:'scale(1)' }}>
+                          <Card card={community[i]} size="md"/>
+                        </div>
+                      ) : stage !== 'waiting' ? (
+                        <div key={i} style={{ width:54, height:76, borderRadius:6, border:'1px solid rgba(255,255,255,0.05)', background:'rgba(255,255,255,0.015)', transition:'transform 0.3s' }}/>
+                      ) : null
                     ))}
                   </div>
                   {stage!=='waiting' && (
