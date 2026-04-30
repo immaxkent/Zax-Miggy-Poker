@@ -200,11 +200,12 @@ export default function PokerTable({ myAddress }) {
   // ── Table geometry — derived from actual container size, no scaling ───────────
   const { w, h } = size;
   const cx = w / 2;
-  const cy = h * 0.44; // slightly above centre so bottom player + label fit comfortably
-  // Oval occupies ~38% of container width — leaves clear rectangular frame + room for player stations
-  const rx = Math.min(w * 0.23, h * 0.34, 240);
+  const cy = h * 0.44;
+  // rx: 28% of container width but never more than 260px or more than 30% of height
+  // This fills ~55% of a 960px container while leaving clear rectangular frame on all sides
+  const rx = Math.min(w * 0.28, h * 0.30, 260);
   const ry = rx * 0.56;
-  const PUSH = 52; // px outside oval rim where avatar centre sits
+  const PUSH = 52;
 
   function seatPos(idx, total) {
     const deg = 90 + (idx / total) * 360;
@@ -302,8 +303,8 @@ export default function PokerTable({ myAddress }) {
       {/* ── Main row ───────────────────────────────────────────────────────────── */}
       <div style={{ flex:1, display:'flex', overflow:'hidden', minHeight:0 }}>
 
-        {/* ── Left: table + action bar ───────────────────────────────────────── */}
-        <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
+        {/* ── Left: table + action bar — capped at 980px so oval proportions stay consistent ── */}
+        <div style={{ flex:1, maxWidth:980, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
 
           {/* ── TABLE AREA ── */}
           <div
