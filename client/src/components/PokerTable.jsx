@@ -200,11 +200,11 @@ export default function PokerTable({ myAddress }) {
   // ── Table geometry — derived from actual container size, no scaling ───────────
   const { w, h } = size;
   const cx = w / 2;
-  const cy = h * 0.46;
-  // Sized so player labels (avatar+label ≈ 134px total below center) always fit inside the rectangle
-  const rx = Math.min(w * 0.30, h * 0.46);
-  const ry = rx * 0.55;
-  const PUSH = 44; // px outside oval rim where avatar center sits
+  const cy = h * 0.44; // slightly above centre so bottom player + label fit comfortably
+  // Oval occupies ~38% of container width — leaves clear rectangular frame + room for player stations
+  const rx = Math.min(w * 0.23, h * 0.34, 240);
+  const ry = rx * 0.56;
+  const PUSH = 52; // px outside oval rim where avatar centre sits
 
   function seatPos(idx, total) {
     const deg = 90 + (idx / total) * 360;
