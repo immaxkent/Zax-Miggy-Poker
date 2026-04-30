@@ -201,11 +201,11 @@ export default function PokerTable({ myAddress }) {
   // ── Table geometry — derived from actual container size, no scaling ───────────
   const { w, h } = size;
   const cx = w / 2;
-  const cy = h / 2;
-  // Oval semi-axes: x is 37% of container width, y is 56% of x (standard poker oval ratio)
-  const rx = Math.min(w * 0.37, h * 0.58);
-  const ry = rx * 0.56;
-  const PUSH = 58; // px outside the oval rim where avatar center lives
+  const cy = h * 0.46; // slightly above center so bottom player label has room
+  // Oval semi-axes: x is 34% of width, y is 55% of x — leaves clear margin inside the container
+  const rx = Math.min(w * 0.34, h * 0.52);
+  const ry = rx * 0.55;
+  const PUSH = 54; // px outside the oval rim where avatar center lives
 
   function seatPos(idx, total) {
     const deg = 90 + (idx / total) * 360;
@@ -310,12 +310,18 @@ export default function PokerTable({ myAddress }) {
           <div
             ref={tableRef}
             style={{
-              flex: 1, position: 'relative', overflow: 'hidden',
+              flex: 1, position: 'relative', overflow: 'visible',
               margin: '10px 10px 6px 10px',
-              borderRadius: 18,
+              borderRadius: 20,
               background: '#060a10',
-              border: '1px solid rgba(255,255,255,0.05)',
-              boxShadow: '0 0 60px rgba(0,0,0,0.5)',
+              // Three concentric border lines via border + box-shadow spreads
+              border: '1px solid rgba(0,230,118,0.28)',
+              boxShadow: [
+                '0 0 0 1px rgba(0,230,118,0.10)',   // border 2
+                '0 0 0 4px rgba(0,230,118,0.04)',    // border 3 (outermost)
+                '0 0 80px rgba(0,0,0,0.7)',           // ambient depth
+                'inset 0 1px 0 rgba(255,255,255,0.04)', // subtle inner top highlight
+              ].join(', '),
             }}
           >
             {/* Deep shadow under felt */}
