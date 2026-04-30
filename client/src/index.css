@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -9,18 +11,57 @@
 }
 
 body {
-  background: #060d1a;
+  background: #090d14;
   color: #e2e8f0;
+  font-family: 'Space Grotesk', 'Outfit', sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
 /* Custom scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #0f172a; }
-::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #475569; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: #0d1520; }
+::-webkit-scrollbar-thumb { background: #1e3050; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #2d4a70; }
 
 /* Remove number input arrows */
 input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input[type=number] { -moz-appearance: textfield; }
+
+/* Ticker scroll */
+@keyframes ticker {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-track { animation: ticker 28s linear infinite; }
+.ticker-track:hover { animation-play-state: paused; }
+
+/* Floating card */
+@keyframes floatA {
+  0%, 100% { transform: translateY(0px) rotate(-8deg); }
+  50%       { transform: translateY(-14px) rotate(-6deg); }
+}
+@keyframes floatB {
+  0%, 100% { transform: translateY(0px) rotate(10deg); }
+  50%       { transform: translateY(-10px) rotate(12deg); }
+}
+.float-a { animation: floatA 4s ease-in-out infinite; }
+.float-b { animation: floatB 5s ease-in-out infinite; }
+
+/* Glow pulse on action player */
+@keyframes actionGlow {
+  0%, 100% { box-shadow: 0 0 0 2px #fbbf24, 0 0 12px rgba(251,191,36,0.4); }
+  50%       { box-shadow: 0 0 0 3px #fbbf24, 0 0 24px rgba(251,191,36,0.6); }
+}
+.action-glow { animation: actionGlow 1s ease-in-out infinite; }
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translate(-50%, -20px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fadeIn 0.3s ease forwards; }

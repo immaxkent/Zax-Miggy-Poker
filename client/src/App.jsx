@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { WagmiProvider }   from 'wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RainbowKitProvider, ConnectButton } from '@rainbow-me/rainbowkit';
@@ -14,117 +14,375 @@ import GameRoute  from './components/GameRoute';
 
 const queryClient = new QueryClient();
 
-// ─── Shared nav bar ───────────────────────────────────────────────────────────
-function NavBar({ authed, connected, socketError, showConnectionHint }) {
-  return (
-    <nav className="flex items-center justify-between px-6 py-4 border-b"
-      style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(12px)' }}>
+const G  = '#00e676';   // neon green
+const P  = '#ff0070';   // hot pink
+const BG = '#090d14';   // main bg
 
-      <a href="/" className="flex items-center gap-2 no-underline">
-        <div className="text-2xl">♠</div>
+// ─── Shared nav bar ────────────────────────────────────────────────────────────
+function NavBar({ authed, connected, socketError }) {
+  const location = useLocation();
+  const path = location.pathname;
+
+  const links = [
+    { label: 'HOME',  href: '/' },
+    { label: 'LOBBY', href: '/lobby' },
+    { label: 'TABLE', href: '/lobby' },
+  ];
+
+  return (
+    <nav style={{
+      position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1000,
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '0 32px', height: 60,
+      background: 'rgba(9,13,20,0.96)', backdropFilter: 'blur(24px)',
+      borderBottom: '1px solid rgba(255,255,255,0.06)',
+    }}>
+      {/* Logo */}
+      <a href="/" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none' }}>
+        <div style={{
+          width: 34, height: 34, borderRadius: 8,
+          background: `linear-gradient(135deg, ${G} 0%, #00b4d8 100%)`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 17, color: '#000', fontWeight: 900, flexShrink: 0,
+        }}>♠</div>
         <div>
-          <div className="text-white font-bold text-lg leading-none tracking-wide">
-            CRYPTO<span style={{ color: '#f59e0b' }}>POKER</span>
+          <div style={{ color: '#fff', fontWeight: 800, fontSize: 14, letterSpacing: '0.12em', lineHeight: 1.15, textTransform: 'uppercase' }}>
+            CRYPTO<span style={{ color: G }}>POKER</span>
           </div>
-          <div className="text-gray-600 text-xs">on Base</div>
+          <div style={{ color: '#334155', fontSize: 9, letterSpacing: '0.25em', textTransform: 'uppercase', marginTop: 1 }}>
+            ON-CHAIN · BASE
+          </div>
         </div>
       </a>
 
-      <div className="flex items-center gap-3">
-        {authed && (
-          <div className="flex flex-col items-end gap-1">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
-              style={{
-                background: connected ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
-                border: `1px solid ${connected ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
-                color: connected ? '#4ade80' : '#f87171',
-              }}>
-              <div className="w-1.5 h-1.5 rounded-full animate-pulse"
-                style={{ background: connected ? '#4ade80' : '#f87171' }} />
-              {connected ? 'Server connected' : (socketError ? `Failed: ${socketError}` : 'Connecting...')}
-            </div>
-            {!connected && !socketError && (() => {
-              const isLocalDev = typeof window !== 'undefined'
-                && window.location?.hostname === 'localhost'
-                && window.location?.port === '5173';
-              return isLocalDev ? (
-                <span className="text-gray-500 text-xs">
-                  Start the game server: <code className="text-gray-400">cd server && npm run dev</code> (port 3001).
-                </span>
-              ) : showConnectionHint ? (
-                <span className="text-gray-500 text-xs">
-                  Still connecting — check that the server and tunnel (e.g. ngrok) are running on EC2.
-                </span>
-              ) : null;
-            })()}
-          </div>
-        )}
+      {/* Nav links */}
+      <div style={{ display: 'flex', gap: 36 }}>
+        {links.map(({ label, href }) => {
+          const active = (href === '/' && path === '/') || (href !== '/' && path.startsWith(href));
+          return (
+            <a key={label} href={href} style={{
+              color: active ? G : '#64748b',
+              fontSize: 12, fontWeight: 700, letterSpacing: '0.14em',
+              textDecoration: 'none', paddingBottom: 3,
+              borderBottom: `2px solid ${active ? G : 'transparent'}`,
+              transition: 'color 0.15s, border-color 0.15s',
+            }}>
+              {label}
+            </a>
+          );
+        })}
+      </div>
+
+      {/* Right */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{
+            width: 6, height: 6, borderRadius: '50%',
+            background: connected ? G : '#ef4444',
+            boxShadow: `0 0 6px ${connected ? G : '#ef4444'}`,
+          }} />
+          <span style={{ color: '#64748b', fontSize: 11, fontWeight: 600, letterSpacing: '0.1em' }}>
+            1,284 ONLINE
+          </span>
+        </div>
         <ConnectButton chainStatus="icon" showBalance={false} />
       </div>
     </nav>
   );
 }
 
-// ─── Sign-in / landing screen (shown at /) ───────────────────────────────────
-function LandingPage({ address, authed, loading, authError, login, serverReachable }) {
-  if (!address) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-6 py-24">
-        <div className="text-8xl mb-4" style={{ filter: 'drop-shadow(0 0 30px rgba(251,191,36,0.4))' }}>🃏</div>
-        <h1 className="text-white font-bold text-4xl text-center">
-          Play Poker.<br />
-          <span style={{ color: '#f59e0b' }}>Win Crypto.</span>
-        </h1>
-        <p className="text-gray-400 text-center max-w-md">
-          Connect your wallet to join the table. Powered by Base network.
-          Provably fair, fully transparent.
-        </p>
-        <div className="mt-2"><ConnectButton /></div>
-      </div>
-    );
-  }
+// ─── Ticker ────────────────────────────────────────────────────────────────────
+const TICKER_ITEMS = [
+  '✦ HAND #842,193 — FLOPPED QUADS ON THE RIVER',
+  '♦ TOURNEY: MIDNIGHT BOUNTY STARTS IN 02:14:33',
+  '♥ PLAYER.ETH SCOOPED 12.4 ETH POT',
+  '♠ NEW TABLE OPENED — BASE STREET NLH 0.1/0.25',
+  '✦ ZAX_DEGEN WINS WITH POCKET ROCKETS',
+  '♣ BLITZ HOURLY REGISTERING NOW — BUY-IN ≡ 0.01',
+];
 
-  // Wallet connected, not yet authenticated
+function Ticker() {
+  const text = [...TICKER_ITEMS, ...TICKER_ITEMS].join('   ·   ');
   return (
-    <div className="flex flex-col items-center justify-center gap-5 py-24">
-      <div className="text-white font-bold text-2xl">Sign in to play</div>
-      <p className="text-gray-400 text-sm text-center max-w-xs">
-        Sign a message with your wallet to authenticate.<br />
-        No gas required — it's free.
-      </p>
-      {serverReachable === false && (
-        <div className="text-amber-200 text-sm px-5 py-3 rounded-xl text-center max-w-md"
-          style={{ background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.4)' }}>
-          {(() => {
-            const isLocalDev = typeof window !== 'undefined'
-              && window.location?.hostname === 'localhost'
-              && window.location?.port === '5173';
-            return isLocalDev ? (
-              <>
-                <strong>Game server not running.</strong> In another terminal run:<br />
-                <code className="text-white mt-1 inline-block">cd server && npm start</code><br />
-                <span className="text-gray-400 text-xs mt-1 block">Then refresh or click Sign In again.</span>
-              </>
-            ) : (
-              <>
-                <strong>Game server unreachable.</strong> The server or tunnel may be down. Try again in a moment.
-              </>
-            );
-          })()}
+    <div style={{
+      background: '#0d1520', borderTop: '1px solid rgba(255,255,255,0.05)',
+      borderBottom: '1px solid rgba(255,255,255,0.05)',
+      padding: '7px 0', overflow: 'hidden', position: 'relative',
+    }}>
+      <div className="ticker-track" style={{ display: 'inline-block', whiteSpace: 'nowrap' }}>
+        <span style={{ color: '#475569', fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', fontFamily: 'Space Mono, monospace' }}>
+          {text}
+        </span>
+        <span style={{ color: '#475569', fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', fontFamily: 'Space Mono, monospace' }}>
+          {'   ·   ' + text}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Floating Card ─────────────────────────────────────────────────────────────
+function FloatingCard({ rank, suit, color, style, floatClass }) {
+  return (
+    <div className={floatClass} style={{
+      width: 90, height: 126, borderRadius: 10,
+      background: 'linear-gradient(145deg, #ffffff 0%, #f0f0f0 100%)',
+      boxShadow: '0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.1)',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      position: 'relative', overflow: 'hidden',
+      ...style,
+    }}>
+      <div style={{ position: 'absolute', top: 8, left: 10, color, fontSize: 16, fontWeight: 900, fontFamily: 'Georgia, serif', lineHeight: 1 }}>{rank}</div>
+      <div style={{ position: 'absolute', top: 22, left: 10, color, fontSize: 10 }}>{suit}</div>
+      <div style={{ color, fontSize: 48 }}>{suit}</div>
+      <div style={{ position: 'absolute', bottom: 8, right: 10, color, fontSize: 16, fontWeight: 900, fontFamily: 'Georgia, serif', lineHeight: 1, transform: 'rotate(180deg)' }}>{rank}</div>
+    </div>
+  );
+}
+
+// ─── Tournament Card ───────────────────────────────────────────────────────────
+function TourneyCard({ badge, badgeColor, tag, name, prize, buyIn, players, maxPlayers, starts, colors, size = 'normal' }) {
+  const isLarge = size === 'large';
+  return (
+    <div style={{
+      background: '#0d1520', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16,
+      padding: isLarge ? 28 : 22, display: 'flex', flexDirection: 'column', gap: isLarge ? 20 : 16,
+      transition: 'border-color 0.2s, transform 0.2s',
+      cursor: 'pointer',
+    }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; e.currentTarget.style.transform = 'none'; }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{
+          fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', color: badgeColor || G,
+          background: `${badgeColor || G}18`, border: `1px solid ${badgeColor || G}40`,
+          padding: '3px 8px', borderRadius: 4,
+        }}>{badge}</div>
+        <div style={{ fontSize: 10, fontWeight: 600, color: '#64748b', letterSpacing: '0.1em' }}>{tag}</div>
+      </div>
+      <div>
+        <div style={{ color: '#fff', fontWeight: 800, fontSize: isLarge ? 22 : 18, letterSpacing: '0.06em', textTransform: 'uppercase', lineHeight: 1.2 }}>{name}</div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        {[
+          { label: 'PRIZE POOL', value: `≡ ${prize}` },
+          { label: 'BUY-IN', value: `≡ ${buyIn}` },
+          { label: 'PLAYERS', value: `${players}/${maxPlayers}` },
+          { label: 'STARTS', value: starts },
+        ].map(({ label, value }) => (
+          <div key={label}>
+            <div style={{ color: '#475569', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', marginBottom: 3 }}>{label}</div>
+            <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 13 }}>{value}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', gap: -6 }}>
+          {colors.map((c, i) => (
+            <div key={i} style={{ width: 20, height: 20, borderRadius: '50%', background: c, border: '2px solid #0d1520', marginLeft: i === 0 ? 0 : -6 }} />
+          ))}
         </div>
-      )}
-      {authError && (
-        <div className="text-red-400 text-sm px-4 py-2 rounded-lg"
-          style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
-          {authError}
+        <button style={{
+          background: `${G}18`, border: `1px solid ${G}40`, color: G,
+          fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', padding: '6px 14px', borderRadius: 6,
+          cursor: 'pointer', transition: 'background 0.15s',
+        }}>+ REGISTER</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Landing page (shown at / when not authed) ─────────────────────────────────
+function LandingPage({ address, authed, loading, authError, login, serverReachable }) {
+  const STATS = [
+    { label: 'TOTAL WAGERED', value: '≡ 184,392' },
+    { label: 'HANDS PLAYED',  value: '12.4M' },
+    { label: 'ACTIVE TABLES', value: '247' },
+    { label: 'AVG PAYOUT',    value: '1.4S' },
+  ];
+
+  const TOURNEYS = [
+    { badge: 'STARTING SOON', badgeColor: G,   tag: 'NLH · KNOCKOUT',   name: 'Midnight Bounty', prize: '50.0', buyIn: '0.25', players: 185, maxPlayers: 512, starts: '02:14:33', colors: ['#00e676','#00b4d8','#ff0070','#a855f7','#f59e0b'], size: 'large' },
+    { badge: 'REGISTERING',   badgeColor: P,   tag: 'PLO · FREEZEOUT',  name: 'Satoshi Sunday',  prize: '12.5', buyIn: '0.05', players: 94,  maxPlayers: 256, starts: 'SUN 20:00', colors: ['#00b4d8','#a855f7','#f59e0b'] },
+    { badge: 'LIVE',          badgeColor: G,   tag: 'TURBO · NLH',      name: 'Blitz Hourly',    prize: '1.8',  buyIn: '0.01', players: 42,  maxPlayers: 128, starts: '00:23:11', colors: ['#ff0070','#f59e0b','#00e676','#a855f7'] },
+    { badge: 'REGISTERING',   badgeColor: '#f59e0b', tag: 'HIGH ROLLER', name: 'Whale Room',      prize: '220',  buyIn: '5.00', players: 12,  maxPlayers: 40,  starts: 'FRI 21:00', colors: ['#f59e0b','#00e676'] },
+    { badge: 'STARTING SOON', badgeColor: G,   tag: 'NLH · RE-ENTRY',   name: 'Daily Deepstack',  prize: '8.4',  buyIn: '0.10', players: 210, maxPlayers: 400, starts: '04:02:40', colors: ['#a855f7','#00b4d8','#ff0070'] },
+  ];
+
+  return (
+    <div style={{ minHeight: '100vh', background: BG }}>
+      {/* Hero */}
+      <section style={{
+        position: 'relative', minHeight: '100vh', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', textAlign: 'center',
+        padding: '80px 24px 40px', overflow: 'hidden',
+      }}>
+        {/* Radial glow background */}
+        <div style={{
+          position: 'absolute', top: '20%', left: '50%', transform: 'translateX(-50%)',
+          width: 600, height: 600, borderRadius: '50%',
+          background: `radial-gradient(circle, ${G}12 0%, transparent 70%)`,
+          pointerEvents: 'none',
+        }} />
+        {/* Floating cards */}
+        <div style={{ position: 'absolute', top: '18%', left: '8%' }}>
+          <FloatingCard rank="A" suit="♠" color="#1e293b" floatClass="float-a" />
         </div>
-      )}
-      <button onClick={login} disabled={loading || serverReachable === false}
-        className="px-8 py-3.5 rounded-xl font-bold text-base transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
-        style={{ background: 'linear-gradient(135deg, #b45309, #d97706)',
-          color: '#fff8e7', boxShadow: '0 4px 20px rgba(245,158,11,0.3)' }}>
-        {loading ? '⏳ Signing...' : '🔐 Sign In'}
-      </button>
+        <div style={{ position: 'absolute', top: '14%', right: '7%' }}>
+          <FloatingCard rank="K" suit="♥" color="#ef4444" floatClass="float-b" />
+        </div>
+        <div style={{ position: 'absolute', top: '55%', left: '4%', opacity: 0.4 }}>
+          <FloatingCard rank="A" suit="♣" color="#1e293b" floatClass="float-b" style={{ width: 56, height: 78, borderRadius: 6 }} />
+        </div>
+
+        {/* Badge */}
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 32,
+          background: `${G}14`, border: `1px solid ${G}40`, borderRadius: 24,
+          padding: '6px 16px', color: G, fontSize: 11, fontWeight: 700, letterSpacing: '0.18em',
+        }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: G, boxShadow: `0 0 6px ${G}` }} />
+          NOW LIVE ON BASE MAINNET
+        </div>
+
+        {/* Headline */}
+        <h1 style={{ fontSize: 'clamp(52px, 10vw, 100px)', fontWeight: 900, letterSpacing: '-0.01em', lineHeight: 0.95, marginBottom: 20, textTransform: 'uppercase' }}>
+          <div style={{ color: '#fff' }}>Play Poker.</div>
+          <div style={{ color: G, textShadow: `0 0 40px ${G}60` }}>Win Crypto.</div>
+        </h1>
+
+        <div style={{ color: '#94a3b8', fontSize: 'clamp(16px, 2vw, 22px)', fontWeight: 600, letterSpacing: '0.2em', marginBottom: 20, textTransform: 'uppercase' }}>
+          On-Chain. No House.
+        </div>
+
+        <p style={{ color: '#475569', fontSize: 15, maxWidth: 420, marginBottom: 36, lineHeight: 1.6 }}>
+          Provably fair Texas Hold'em settled on Base. Your keys. Your chips. Your edge. Zero rake on the first 10,000 hands.
+        </p>
+
+        {/* CTAs */}
+        <div style={{ display: 'flex', gap: 16, marginBottom: 36, flexWrap: 'wrap', justifyContent: 'center' }}>
+          {!address ? (
+            <>
+              <ConnectButton />
+              <button style={{
+                padding: '12px 28px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)',
+                background: 'transparent', color: '#94a3b8', fontSize: 13, fontWeight: 700,
+                letterSpacing: '0.1em', cursor: 'pointer',
+              }}>
+                ✉ SIGN IN WITH EMAIL
+              </button>
+            </>
+          ) : (
+            <>
+              {serverReachable === false && (
+                <div style={{
+                  color: '#fbbf24', fontSize: 13, padding: '10px 20px', borderRadius: 8,
+                  background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)',
+                  maxWidth: 360, textAlign: 'center',
+                }}>
+                  Game server unreachable. Start it or check your tunnel.
+                </div>
+              )}
+              {authError && (
+                <div style={{ color: '#f87171', fontSize: 13, padding: '8px 16px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
+                  {authError}
+                </div>
+              )}
+              <button onClick={login} disabled={loading || serverReachable === false}
+                style={{
+                  padding: '14px 36px', borderRadius: 8, border: 'none',
+                  background: `linear-gradient(135deg, ${G}, #00b4d8)`,
+                  color: '#000', fontSize: 14, fontWeight: 800, letterSpacing: '0.12em',
+                  cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1,
+                  boxShadow: `0 0 30px ${G}40`,
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                {loading ? '⏳ SIGNING...' : '🔐 SIGN IN TO PLAY'}
+              </button>
+              <ConnectButton chainStatus="icon" showBalance={false} />
+            </>
+          )}
+        </div>
+
+        {/* Trust badges */}
+        <div style={{ display: 'flex', gap: 24, color: '#475569', fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', flexWrap: 'wrap', justifyContent: 'center' }}>
+          {['⊙ AUDITED CONTRACTS', '⊙ TRANSPARENT SHUFFLES', '⊡ SUB-SECOND ACTIONS'].map(b => (
+            <span key={b}>{b}</span>
+          ))}
+        </div>
+      </section>
+
+      {/* Stats bar */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
+        background: '#0d1520', borderTop: '1px solid rgba(255,255,255,0.05)',
+        borderBottom: '1px solid rgba(255,255,255,0.05)',
+      }}>
+        {STATS.map(({ label, value }, i) => (
+          <div key={label} style={{
+            padding: '28px 24px', textAlign: 'center',
+            borderRight: i < 3 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+          }}>
+            <div style={{ color: '#fff', fontWeight: 800, fontSize: 28, fontFamily: 'Space Mono, monospace', marginBottom: 6 }}>{value}</div>
+            <div style={{ color: '#334155', fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase' }}>{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Ticker */}
+      <Ticker />
+
+      {/* Tournaments */}
+      <section style={{ maxWidth: 1100, margin: '0 auto', padding: '64px 24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 32 }}>
+          <div>
+            <div style={{ color: '#334155', fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', marginBottom: 8 }}>// UPCOMING</div>
+            <h2 style={{ color: '#fff', fontWeight: 900, fontSize: 28, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+              TOURNAMENTS / <span style={{ color: P }}>LIVE</span>
+            </h2>
+          </div>
+          <a href="/lobby" style={{ color: '#334155', fontSize: 12, fontWeight: 700, letterSpacing: '0.12em', textDecoration: 'none' }}>VIEW ALL →</a>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <TourneyCard {...TOURNEYS[0]} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            {TOURNEYS.slice(1, 3).map(t => <TourneyCard key={t.name} {...t} />)}
+          </div>
+          {TOURNEYS.slice(3).map(t => <TourneyCard key={t.name} {...t} />)}
+        </div>
+      </section>
+
+      {/* Features */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
+        background: '#0d1520', borderTop: '1px solid rgba(255,255,255,0.05)',
+      }}>
+        {[
+          { icon: '🛡', title: 'PROVABLY FAIR', desc: 'Every shuffle commits a hash on-chain. Verify any hand, any time.' },
+          { icon: '⚡', title: 'INSTANT SETTLEMENT', desc: 'Wins land in your wallet the moment the hand ends. No cashier.' },
+          { icon: '👁', title: 'ZERO CUSTODY', desc: "We never hold your funds. Smart contracts move chips, not us." },
+        ].map(({ icon, title, desc }, i) => (
+          <div key={title} style={{
+            padding: '48px 36px',
+            borderRight: i < 2 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+          }}>
+            <div style={{ fontSize: 28, marginBottom: 16 }}>{icon}</div>
+            <div style={{ color: '#fff', fontWeight: 800, fontSize: 13, letterSpacing: '0.18em', marginBottom: 12 }}>{title}</div>
+            <div style={{ color: '#475569', fontSize: 14, lineHeight: 1.6 }}>{desc}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Footer */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '20px 32px', borderTop: '1px solid rgba(255,255,255,0.05)',
+        color: '#334155', fontSize: 11, fontWeight: 600, letterSpacing: '0.1em',
+      }}>
+        <span>© 2026 CRYPTOPOKER · CONTRACT 0X7A.F302</span>
+        <span>RESPONSIBLE PLAY · 18+ · GAMBLING MAY BE ADDICTIVE.</span>
+      </div>
     </div>
   );
 }
@@ -136,7 +394,6 @@ function AppRoutes() {
   const [serverReachable, setServerReachable] = useState(null);
   const [showConnectionHint, setShowConnectionHint] = useState(false);
 
-  // Show tunnel hint after 5 s of failing to connect
   useEffect(() => {
     if (connected || socketError) { setShowConnectionHint(false); return; }
     if (!authed) return;
@@ -144,7 +401,6 @@ function AppRoutes() {
     return () => clearTimeout(t);
   }, [connected, socketError, authed]);
 
-  // Health-check server while on the sign-in screen
   useEffect(() => {
     if (!address || authed) return;
     let cancelled = false;
@@ -158,40 +414,35 @@ function AppRoutes() {
   }, [address, authed]);
 
   return (
-    <div className="min-h-screen" style={{ background: '#060d1a', fontFamily: "'Outfit', sans-serif" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&display=swap');`}</style>
+    <div style={{ background: BG, fontFamily: "'Space Grotesk', 'Outfit', sans-serif" }}>
       <style>{`
         @keyframes slideDown {
           from { opacity: 0; transform: translate(-50%, -20px); }
           to   { opacity: 1; transform: translate(-50%, 0); }
         }
+        a:hover { opacity: 0.85; }
       `}</style>
 
-      <NavBar
-        authed={authed}
-        connected={connected}
-        socketError={socketError}
-        showConnectionHint={showConnectionHint}
-      />
+      <NavBar authed={authed} connected={connected} socketError={socketError} />
 
       {/* Global toast */}
       {notification && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-2xl font-bold text-sm"
           style={{
             background: notification.type === 'win'
-              ? 'linear-gradient(135deg, #14532d, #166534)'
-              : 'linear-gradient(135deg, #1e3a5f, #1e40af)',
-            border: `1px solid ${notification.type === 'win' ? '#22c55e' : '#3b82f6'}`,
-            boxShadow: `0 8px 32px ${notification.type === 'win' ? 'rgba(34,197,94,0.3)' : 'rgba(59,130,246,0.3)'}`,
+              ? 'linear-gradient(135deg, #052e16, #14532d)'
+              : 'linear-gradient(135deg, #0c1a3a, #1e3a5f)',
+            border: `1px solid ${notification.type === 'win' ? G : '#3b82f6'}`,
+            boxShadow: `0 8px 32px ${notification.type === 'win' ? `${G}40` : 'rgba(59,130,246,0.3)'}`,
             color: 'white', animation: 'slideDown 0.3s ease',
           }}>
           {notification.message}
         </div>
       )}
 
-      <main className="py-8">
+      {/* Main — padded for fixed nav, except on game pages which handle their own height */}
+      <main style={{ paddingTop: 60 }}>
         <Routes>
-          {/* Landing / sign-in */}
           <Route path="/" element={
             authed
               ? <Navigate to="/lobby" replace />
@@ -205,39 +456,38 @@ function AppRoutes() {
                 />
           } />
 
-          {/* Lobby — requires auth */}
           <Route path="/lobby" element={
             !authed
               ? <Navigate to="/" replace />
-              // Chip-based tables still use state-based rendering
               : (gameState && !gameState.tableId?.startsWith('usdc-'))
                 ? <PokerTable myAddress={address?.toLowerCase()} />
                 : <Lobby token={token} address={address} />
           } />
 
-          {/* USDC game table — requires auth + on-chain membership */}
           <Route path="/game/:gameId" element={
             !authed
               ? <Navigate to="/" replace />
               : <GameRoute />
           } />
 
-          {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
 
       {socketError && address && authed && (
-        <div className="fixed bottom-6 right-6 text-red-400 text-sm px-4 py-2 rounded-xl z-50"
-          style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)' }}>
-          ⚠️ {socketError}
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 50,
+          color: '#f87171', fontSize: 13, padding: '10px 16px', borderRadius: 10,
+          background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)',
+        }}>
+          ⚠ {socketError}
         </div>
       )}
     </div>
   );
 }
 
-// ─── Provider bridge (reads auth token, passes to GameProvider) ───────────────
+// ─── Provider bridge ──────────────────────────────────────────────────────────
 function AuthenticatedGameProvider({ children }) {
   const { token, address } = useAuth();
   return (

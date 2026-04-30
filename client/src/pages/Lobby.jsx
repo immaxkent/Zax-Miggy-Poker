@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAccount, useWriteContract, useReadContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useWriteContract, useReadContract } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import {
   SERVER_URL, SERVER_API_KEY,
@@ -11,68 +11,103 @@ import {
 } from '../utils/web3Config';
 import { useGame } from '../context/GameContext';
 
+const G = '#00e676';
+const P = '#ff0070';
+
 const STAKE_CONFIGS = {
-  'micro-1': { name: 'Micro',       blinds: '1/2',     color: '#22c55e',  bg: 'rgba(34,197,94,0.1)' },
-  'low-1':   { name: 'Low',         blinds: '5/10',    color: '#3b82f6',  bg: 'rgba(59,130,246,0.1)' },
-  'mid-1':   { name: 'Mid Stakes',  blinds: '25/50',   color: '#a855f7',  bg: 'rgba(168,85,247,0.1)' },
-  'high-1':  { name: 'High Roller', blinds: '100/200', color: '#f59e0b',  bg: 'rgba(245,158,11,0.1)' },
+  'micro-1': { name: 'Micro',       blinds: '1/2',     color: G,        tag: 'NLH · 6-MAX' },
+  'low-1':   { name: 'Low',         blinds: '5/10',    color: '#00b4d8', tag: 'NLH · 6-MAX' },
+  'mid-1':   { name: 'Mid Stakes',  blinds: '25/50',   color: '#a855f7', tag: 'NLH · 6-MAX' },
+  'high-1':  { name: 'High Roller', blinds: '100/200', color: '#f59e0b', tag: 'NLH · 6-MAX' },
 };
 
-function StatBadge({ label, value, color }) {
-  return (
-    <div className="flex flex-col items-center px-4 py-2 rounded-xl"
-      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-      <div className="text-xs text-gray-500 uppercase tracking-wider">{label}</div>
-      <div className="text-lg font-bold mt-0.5" style={{ color: color || '#e2e8f0' }}>{value}</div>
-    </div>
-  );
-}
+const FILTER_TABS = ['ALL', 'NLH', 'PLO', 'HEADS-UP', '6-MAX', '9-MAX', 'MICRO', 'LOW', 'MID', 'HIGH'];
 
-function TableCard({ tableId, info, onJoin, disabled }) {
-  const cfg   = STAKE_CONFIGS[tableId] || {};
-  const spots = (info?.maxSeats || 9) - (info?.players || 0);
+// ─── Active table row ──────────────────────────────────────────────────────────
+function TableRow({ tableId, info, onJoin, disabled }) {
+  const cfg = STAKE_CONFIGS[tableId] || {};
+  const players = info?.players || 0;
+  const maxSeats = info?.maxSeats || 6;
+  const isActive = info?.stage && info.stage !== 'waiting';
+  const isFull = players >= maxSeats;
+  const isHot = players >= maxSeats - 1;
 
   return (
-    <div className="relative rounded-2xl overflow-hidden cursor-pointer group transition-all duration-300 hover:-translate-y-1"
-      style={{ background: `linear-gradient(135deg, ${cfg.bg}, rgba(0,0,0,0.4))`,
-        border: `1px solid ${cfg.color}40`, boxShadow: `0 4px 24px ${cfg.color}10` }}
-      onClick={() => !disabled && onJoin(tableId)}>
-
-      {/* Gradient edge */}
-      <div className="absolute top-0 left-0 right-0 h-0.5"
-        style={{ background: `linear-gradient(90deg, transparent, ${cfg.color}, transparent)` }} />
-
-      <div className="p-5">
-        <div className="flex justify-between items-start mb-4">
+    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.15s', cursor: 'pointer' }}
+      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
+      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+      {/* Table name */}
+      <td style={{ padding: '14px 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: 8,
+            background: `${cfg.color}18`, border: `1px solid ${cfg.color}30`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <div style={{
+              width: 8, height: 8, borderRadius: '50%', background: cfg.color,
+              boxShadow: isActive ? `0 0 6px ${cfg.color}` : 'none',
+            }} />
+          </div>
           <div>
-            <div className="font-bold text-white text-lg">{cfg.name}</div>
-            <div className="text-sm mt-0.5" style={{ color: cfg.color }}>
-              Blinds {cfg.blinds}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 14, letterSpacing: '0.04em' }}>
+                {cfg.name?.toUpperCase()}
+              </span>
+              {isHot && (
+                <span style={{
+                  fontSize: 9, fontWeight: 800, letterSpacing: '0.12em', color: P,
+                  background: `${P}18`, border: `1px solid ${P}40`,
+                  padding: '2px 6px', borderRadius: 4,
+                }}>HOT</span>
+              )}
             </div>
-          </div>
-          <div className="rounded-lg px-3 py-1 text-xs font-bold"
-            style={{ background: `${cfg.color}20`, color: cfg.color, border: `1px solid ${cfg.color}40` }}>
-            {info?.players || 0}/{info?.maxSeats || 9}
+            <div style={{ color: '#334155', fontSize: 11, marginTop: 2 }}>T-{tableId} · {cfg.tag}</div>
           </div>
         </div>
-
-        <div className="flex justify-between text-sm text-gray-400">
-          <span>🪑 {spots} seat{spots !== 1 ? 's' : ''} open</span>
-          <span className="capitalize"
-            style={{ color: info?.stage === 'waiting' ? '#64748b' : '#4ade80' }}>
-            {info?.stage || 'waiting'}
-          </span>
-        </div>
-      </div>
-
-      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center rounded-2xl"
-        style={{ background: `${cfg.color}15` }}>
-        <div className="font-bold text-white text-lg tracking-wide">JOIN TABLE →</div>
-      </div>
-    </div>
+      </td>
+      {/* Game */}
+      <td style={{ padding: '14px 12px', color: '#00b4d8', fontSize: 12, fontWeight: 700 }}>NLH</td>
+      {/* Stakes */}
+      <td style={{ padding: '14px 12px', color: '#e2e8f0', fontWeight: 700, fontSize: 13, fontFamily: 'Space Mono, monospace' }}>
+        {cfg.blinds}
+      </td>
+      {/* Buy-in */}
+      <td style={{ padding: '14px 12px', color: '#94a3b8', fontSize: 12, fontFamily: 'Space Mono, monospace' }}>—</td>
+      {/* Players */}
+      <td style={{ padding: '14px 12px' }}>
+        <span style={{
+          color: isFull ? P : G, fontWeight: 700, fontSize: 13,
+          display: 'flex', alignItems: 'center', gap: 4,
+        }}>
+          <span style={{ opacity: 0.5, fontSize: 11 }}>👥</span>
+          <span style={{ color: isFull ? P : '#e2e8f0' }}>{players}</span>
+          <span style={{ color: '#334155' }}>/{maxSeats}</span>
+        </span>
+      </td>
+      {/* Avg pot */}
+      <td style={{ padding: '14px 12px', color: '#94a3b8', fontSize: 12, fontFamily: 'Space Mono, monospace' }}>—</td>
+      {/* H/hr */}
+      <td style={{ padding: '14px 12px', color: '#94a3b8', fontSize: 12 }}>—</td>
+      {/* Action */}
+      <td style={{ padding: '14px 20px' }}>
+        <button onClick={() => !disabled && onJoin(tableId)} disabled={disabled}
+          style={{
+            background: isFull ? 'rgba(255,255,255,0.04)' : `${G}18`,
+            border: `1px solid ${isFull ? 'rgba(255,255,255,0.1)' : `${G}40`}`,
+            color: isFull ? '#475569' : G,
+            fontSize: 12, fontWeight: 700, letterSpacing: '0.1em',
+            padding: '7px 18px', borderRadius: 6, cursor: isFull ? 'not-allowed' : 'pointer',
+            whiteSpace: 'nowrap', transition: 'all 0.15s',
+          }}>
+          {isFull ? 'FULL' : 'JOIN ↗'}
+        </button>
+      </td>
+    </tr>
   );
 }
 
+// ─── Modals (preserved logic, new visual style) ────────────────────────────────
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const contractsDeployed = () => {
   const t = (TOKEN_ADDRESS || '').toLowerCase();
@@ -80,212 +115,152 @@ const contractsDeployed = () => {
   return t && v && t !== ZERO_ADDRESS && v !== ZERO_ADDRESS;
 };
 
-const WRONG_NETWORK_MSG = (
-  <>
-    Your wallet is on a different network. For local dev you must use <strong>Anvil Local (Chain ID 31337)</strong>.
-    In MetaMask: Add network → Name <strong>Anvil Local</strong>, RPC URL <strong>{ANVIL_RPC_URL}</strong>, Chain ID <strong>31337</strong>. Then switch to that network.
-  </>
-);
+function Modal({ onClose, title, accent = G, children }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 50, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)',
+    }}>
+      <div style={{
+        width: '100%', maxWidth: 440, borderRadius: 16, padding: 28,
+        background: '#0d1520', border: `1px solid ${accent}30`,
+        boxShadow: `0 0 60px ${accent}15`,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div style={{ color: '#fff', fontWeight: 800, fontSize: 17, letterSpacing: '0.04em' }}>{title}</div>
+          <button onClick={onClose} style={{ color: '#475569', background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function InputField({ label, ...props }) {
+  return (
+    <div style={{ marginBottom: 16 }}>
+      {label && <div style={{ color: '#475569', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', marginBottom: 8 }}>{label}</div>}
+      <input {...props} style={{
+        width: '100%', padding: '12px 16px', borderRadius: 8,
+        background: '#060d14', border: '1px solid rgba(255,255,255,0.08)',
+        color: '#e2e8f0', fontSize: 15, fontFamily: 'Space Mono, monospace',
+        outline: 'none', ...props.style,
+      }} />
+    </div>
+  );
+}
+
+function PrimaryBtn({ children, style, ...props }) {
+  return (
+    <button {...props} style={{
+      width: '100%', padding: '13px', borderRadius: 8, border: 'none',
+      background: `linear-gradient(135deg, ${G}, #00b4d8)`,
+      color: '#000', fontSize: 13, fontWeight: 800, letterSpacing: '0.12em',
+      cursor: 'pointer', transition: 'opacity 0.15s',
+      ...style,
+    }}>
+      {children}
+    </button>
+  );
+}
+
+function InfoRow({ label, value }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+      <span style={{ color: '#475569', fontSize: 12 }}>{label}</span>
+      <span style={{ color: '#e2e8f0', fontWeight: 600, fontFamily: 'Space Mono, monospace', fontSize: 13 }}>{value}</span>
+    </div>
+  );
+}
 
 function DepositModal({ onClose, onDeposited }) {
   const { address, chainId } = useAccount();
-  const [amount,  setAmount]  = useState('');
-  const [step,    setStep]    = useState('input'); // input | approving | depositing | done
-  const [txHash,  setTxHash]  = useState(null);
-  const [error,   setError]   = useState(null);
-
+  const [amount, setAmount] = useState('');
+  const [step, setStep] = useState('input');
+  const [error, setError] = useState(null);
   const { writeContractAsync } = useWriteContract();
   const wrongNetwork = chainId != null && Number(chainId) !== CHAIN_ID;
-
-  // Don't call contracts if not deployed (avoids "burn address" / "not a contract" errors)
   const deployed = contractsDeployed();
 
-  // Read current allowance (only when contracts deployed)
   const { data: allowance } = useReadContract({
     address: deployed ? TOKEN_ADDRESS : undefined,
-    abi: ERC20_ABI,
-    functionName: 'allowance',
-    args: [address, VAULT_ADDRESS],
-    watch: true,
+    abi: ERC20_ABI, functionName: 'allowance',
+    args: [address, VAULT_ADDRESS], watch: true,
   });
-
   const { data: tokenBalance } = useReadContract({
     address: deployed ? TOKEN_ADDRESS : undefined,
-    abi: ERC20_ABI,
-    functionName: 'balanceOf',
-    args: [address],
-    watch: true,
+    abi: ERC20_ABI, functionName: 'balanceOf',
+    args: [address], watch: true,
   });
 
   async function handleDeposit() {
     if (!amount || Number(amount) <= 0) return;
     setError(null);
     const gross = parseUnits(amount, TOKEN_DECIMALS);
-
     try {
-      // Step 1: Approve if needed
       if (!allowance || allowance < gross) {
         setStep('approving');
-        const approveTx = await writeContractAsync({
-          address: TOKEN_ADDRESS,
-          abi: ERC20_ABI,
-          functionName: 'approve',
-          args: [VAULT_ADDRESS, gross],
-        });
-        setTxHash(approveTx);
-        // Wait is handled via useWaitForTransactionReceipt in production
-        await new Promise(r => setTimeout(r, 4000)); // simplified wait
+        await writeContractAsync({ address: TOKEN_ADDRESS, abi: ERC20_ABI, functionName: 'approve', args: [VAULT_ADDRESS, gross] });
+        await new Promise(r => setTimeout(r, 4000));
       }
-
-      // Step 2: Deposit
       setStep('depositing');
-      const depositTx = await writeContractAsync({
-        address: VAULT_ADDRESS,
-        abi: VAULT_ABI,
-        functionName: 'deposit',
-        args: [gross],
-      });
-      setTxHash(depositTx);
+      await writeContractAsync({ address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'deposit', args: [gross] });
       await new Promise(r => setTimeout(r, 4000));
-
-      // Net chips after 8% fee
-      const feeBps = 800;
-      const net = Math.floor(Number(amount) * (10000 - feeBps) / 10000);
+      const net = Math.floor(Number(amount) * 0.92);
       onDeposited(net);
       setStep('done');
     } catch (err) {
-      console.error(err);
       const msg = err.shortMessage || err.message || '';
-      const isWrongAccount = /different account|another account|account selected/i.test(msg);
-      const isWrongChain = /invalid chain id|chain id for signer/i.test(msg);
-      setError(isWrongChain
-        ? `Wrong network. Switch your wallet to Anvil Local (Chain ID 31337). In MetaMask: Add network → RPC ${ANVIL_RPC_URL}, Chain ID 31337, then switch to it.`
-        : isWrongAccount
-          ? 'Your wallet is set to a different account. In MetaMask (or your wallet), switch back to the account you used to sign in (see top right), then try again.'
-          : msg);
+      setError(msg);
       setStep('input');
     }
   }
 
   const balance = tokenBalance ? Number(formatUnits(tokenBalance, TOKEN_DECIMALS)).toFixed(2) : '—';
-  const netPreview = amount ? Math.floor(Number(amount) * 0.92).toLocaleString() : null; // 8% fee
+  const netPreview = amount ? Math.floor(Number(amount) * 0.92).toLocaleString() : null;
 
   if (!deployed) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center z-50"
-        style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)' }}>
-        <div className="w-full max-w-md rounded-2xl p-6"
-          style={{ background: '#0f172a', border: '1px solid rgba(251,191,36,0.3)',
-            boxShadow: '0 0 60px rgba(251,191,36,0.1)' }}>
-          <div className="flex justify-between items-center mb-4">
-            <div className="text-white font-bold text-xl">Buy Chips</div>
-            <button onClick={onClose} className="text-gray-500 hover:text-white text-xl transition-colors">✕</button>
-          </div>
-          <div className="rounded-xl p-4 mb-4"
-            style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
-            <p className="text-red-300 font-bold mb-2">Token and vault not deployed</p>
-            <p className="text-gray-400 text-sm mb-3">
-              Your app is still pointing at the zero address, so the wallet correctly blocks the request. Deploy the local contracts and set the addresses in <code className="text-gray-300">client/.env</code> and <code className="text-gray-300">server/.env</code>.
-            </p>
-            <p className="text-gray-500 text-xs font-mono break-all mb-2">From project root:</p>
-            <ol className="text-gray-400 text-xs list-decimal list-inside space-y-1 mb-3">
-              <li>Start anvil: <code className="text-amber-300">anvil</code></li>
-              <li>Deploy: <code className="text-amber-300">cd contracts && forge script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80</code></li>
-              <li>Copy the printed TOKEN_ADDRESS and VAULT_ADDRESS into <code className="text-amber-300">client/.env</code> and <code className="text-amber-300">server/.env</code></li>
-              <li>Restart the client (and server if you changed server/.env)</li>
-            </ol>
-            <p className="text-gray-500 text-xs">Then &quot;Buy Chips&quot; will work.</p>
-          </div>
-          <button onClick={onClose}
-            className="w-full py-2.5 rounded-xl font-bold text-sm text-gray-300"
-            style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)' }}>
-            Close
-          </button>
+      <Modal onClose={onClose} title="Buy Chips" accent={G}>
+        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+          <div style={{ color: '#f87171', fontWeight: 700, marginBottom: 8, fontSize: 13 }}>Contracts not deployed</div>
+          <div style={{ color: '#64748b', fontSize: 12, lineHeight: 1.6 }}>Deploy local contracts and set addresses in <code style={{ color: '#94a3b8' }}>client/.env</code></div>
         </div>
-      </div>
+        <button onClick={onClose} style={{ width: '100%', padding: 12, borderRadius: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', cursor: 'pointer', fontWeight: 600 }}>Close</button>
+      </Modal>
     );
   }
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)' }}>
-      <div className="w-full max-w-md rounded-2xl p-6"
-        style={{ background: '#0f172a', border: '1px solid rgba(251,191,36,0.3)',
-          boxShadow: '0 0 60px rgba(251,191,36,0.1)' }}>
-
-        <div className="flex justify-between items-center mb-5">
-          <div className="text-white font-bold text-xl">Buy Chips</div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl transition-colors">✕</button>
+    <Modal onClose={onClose} title="Buy Chips" accent={G}>
+      {wrongNetwork && (
+        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: 12, marginBottom: 16, color: '#f87171', fontSize: 12 }}>
+          Wrong network — switch to Anvil Local (Chain ID 31337)
         </div>
-        <p className="text-gray-500 text-xs mb-3">
-          Use the same wallet account you signed in with (the one shown in the top right).
-        </p>
-
-        {wrongNetwork && (
-          <div className="rounded-xl p-4 mb-4 text-sm"
-            style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
-            <p className="text-red-300 font-bold mb-2">Wrong network</p>
-            <p className="text-gray-300 mb-0">{WRONG_NETWORK_MSG}</p>
+      )}
+      <InfoRow label={`Your ${TOKEN_SYMBOL} balance`} value={`${balance} ${TOKEN_SYMBOL}`} />
+      <div style={{ height: 16 }} />
+      <InputField label={`AMOUNT (${TOKEN_SYMBOL})`} type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="Enter amount" />
+      {netPreview && (
+        <div style={{ background: `${G}08`, border: `1px solid ${G}20`, borderRadius: 10, padding: 12, marginBottom: 16 }}>
+          <InfoRow label="Gross amount" value={`${Number(amount).toLocaleString()} ${TOKEN_SYMBOL}`} />
+          <InfoRow label="Buy-in fee (8%)" value={`-${Math.floor(Number(amount) * 0.08).toLocaleString()}`} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, fontWeight: 700 }}>
+            <span style={{ color: '#94a3b8', fontSize: 12 }}>Chips credited</span>
+            <span style={{ color: G, fontFamily: 'Space Mono, monospace', fontSize: 13 }}>{netPreview} chips</span>
           </div>
-        )}
-
-        <div className="rounded-xl p-3 mb-4 flex justify-between items-center"
-          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <span className="text-gray-400 text-sm">Your {TOKEN_SYMBOL} balance</span>
-          <span className="text-white font-mono font-bold">{balance} {TOKEN_SYMBOL}</span>
         </div>
-
-        <div className="mb-4">
-          <label className="text-gray-400 text-sm block mb-2">Amount ({TOKEN_SYMBOL})</label>
-          <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
-            placeholder="Enter amount"
-            className="w-full px-4 py-3 rounded-xl text-white font-mono text-lg"
-            style={{ background: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', outline: 'none' }} />
-        </div>
-
-        {/* Fee breakdown */}
-        {netPreview && (
-          <div className="rounded-xl p-3 mb-4"
-            style={{ background: 'rgba(251,191,36,0.05)', border: '1px solid rgba(251,191,36,0.2)' }}>
-            <div className="flex justify-between text-sm mb-1.5">
-              <span className="text-gray-400">Gross amount</span>
-              <span className="text-white">{Number(amount).toLocaleString()} {TOKEN_SYMBOL}</span>
-            </div>
-            <div className="flex justify-between text-sm mb-1.5">
-              <span className="text-gray-400">Buy-in fee (8%)</span>
-              <span className="text-red-400">-{Math.floor(Number(amount) * 0.08).toLocaleString()} {TOKEN_SYMBOL}</span>
-            </div>
-            <div className="flex justify-between text-sm font-bold border-t pt-1.5"
-              style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
-              <span className="text-gray-300">Chips credited</span>
-              <span className="text-green-400">{netPreview} chips</span>
-            </div>
-          </div>
-        )}
-
-        {error && (
-          <div className="mb-3 text-red-400 text-sm rounded-lg px-3 py-2"
-            style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
-            {error}
-          </div>
-        )}
-
-        <button onClick={handleDeposit}
-          disabled={!amount || step !== 'input' || wrongNetwork}
-          className="w-full py-3.5 rounded-xl font-bold text-base transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{ background: 'linear-gradient(135deg, #b45309, #d97706)',
-            color: '#fff8e7', boxShadow: '0 4px 20px rgba(245,158,11,0.3)' }}>
-          {step === 'input'      && `Buy ${netPreview ? `${netPreview} chips` : 'Chips'}`}
-          {step === 'approving'  && '⏳ Approving token...'}
-          {step === 'depositing' && '⏳ Depositing...'}
-          {step === 'done'       && '✅ Chips added!'}
-        </button>
-
-        <p className="text-gray-600 text-xs text-center mt-3">
-          5% cashout fee applies when withdrawing winnings
-        </p>
-      </div>
-    </div>
+      )}
+      {error && <div style={{ color: '#f87171', fontSize: 12, marginBottom: 12, padding: '8px 12px', background: 'rgba(239,68,68,0.08)', borderRadius: 8 }}>{error}</div>}
+      <PrimaryBtn onClick={handleDeposit} disabled={!amount || step !== 'input' || wrongNetwork}
+        style={{ opacity: !amount || step !== 'input' || wrongNetwork ? 0.4 : 1 }}>
+        {step === 'input' && `BUY ${netPreview ? `${netPreview} CHIPS` : 'CHIPS'}`}
+        {step === 'approving' && '⏳ APPROVING...'}
+        {step === 'depositing' && '⏳ DEPOSITING...'}
+        {step === 'done' && '✅ CHIPS ADDED!'}
+      </PrimaryBtn>
+      <div style={{ color: '#334155', fontSize: 11, textAlign: 'center', marginTop: 12 }}>5% cashout fee applies when withdrawing</div>
+    </Modal>
   );
 }
 
@@ -302,22 +277,16 @@ function CreateUsdcGameModal({ onClose, onCreated }) {
 
   const { data: usdcAllowance } = useReadContract({
     address: usdcVaultReady() ? USDC_ADDRESS : undefined,
-    abi: ERC20_ABI,
-    functionName: 'allowance',
-    args: [address, ZAX_MIGGY_VAULT_ADDRESS],
-    watch: true,
+    abi: ERC20_ABI, functionName: 'allowance',
+    args: [address, ZAX_MIGGY_VAULT_ADDRESS], watch: true,
   });
   const { data: usdcBalance } = useReadContract({
     address: usdcVaultReady() ? USDC_ADDRESS : undefined,
-    abi: ERC20_ABI,
-    functionName: 'balanceOf',
-    args: [address],
-    watch: true,
+    abi: ERC20_ABI, functionName: 'balanceOf', args: [address], watch: true,
   });
   const { data: nextGameIdData, refetch: refetchNextGameId } = useReadContract({
     address: usdcVaultReady() ? ZAX_MIGGY_VAULT_ADDRESS : undefined,
-    abi: ZAX_MIGGY_VAULT_ABI,
-    functionName: 'nextGameId',
+    abi: ZAX_MIGGY_VAULT_ABI, functionName: 'nextGameId',
   });
 
   async function handleCreate() {
@@ -327,21 +296,11 @@ function CreateUsdcGameModal({ onClose, onCreated }) {
     try {
       if (!usdcAllowance || usdcAllowance < raw) {
         setStep('approving');
-        await writeContractAsync({
-          address: USDC_ADDRESS,
-          abi: ERC20_ABI,
-          functionName: 'approve',
-          args: [ZAX_MIGGY_VAULT_ADDRESS, raw],
-        });
+        await writeContractAsync({ address: USDC_ADDRESS, abi: ERC20_ABI, functionName: 'approve', args: [ZAX_MIGGY_VAULT_ADDRESS, raw] });
         await new Promise(r => setTimeout(r, 3000));
       }
       setStep('creating');
-      await writeContractAsync({
-        address: ZAX_MIGGY_VAULT_ADDRESS,
-        abi: ZAX_MIGGY_VAULT_ABI,
-        functionName: 'createGame',
-        args: [raw],
-      });
+      await writeContractAsync({ address: ZAX_MIGGY_VAULT_ADDRESS, abi: ZAX_MIGGY_VAULT_ABI, functionName: 'createGame', args: [raw] });
       await new Promise(r => setTimeout(r, 4000));
       const res = await refetchNextGameId();
       const id = Number(res.data ?? 0) - 1;
@@ -357,53 +316,38 @@ function CreateUsdcGameModal({ onClose, onCreated }) {
   const balance = usdcBalance != null ? formatUnits(usdcBalance, USDC_DECIMALS) : '—';
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)' }}>
-      <div className="w-full max-w-md rounded-2xl p-6" style={{ background: '#0f172a', border: '1px solid rgba(59,130,246,0.3)', boxShadow: '0 0 60px rgba(59,130,246,0.1)' }}>
-        <div className="flex justify-between items-center mb-4">
-          <div className="text-white font-bold text-xl">Create USDC Table</div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl">✕</button>
-        </div>
-        <p className="text-gray-500 text-xs mb-3">Set the table cost in USDC. You deposit this amount to create the game; others must deposit the same to join.</p>
-        {wrongNetwork && (
-          <div className="rounded-xl p-3 mb-4 text-sm" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
-            <p className="text-red-300 font-bold">Wrong network</p>
-            <p className="text-gray-300">Switch to {CHAIN_ID === 8453 ? 'Base' : `Chain ID ${CHAIN_ID}`}.</p>
-          </div>
-        )}
-        <div className="rounded-xl p-3 mb-4 flex justify-between items-center" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <span className="text-gray-400 text-sm">Your USDC</span>
-          <span className="text-white font-mono font-bold">{balance} USDC</span>
-        </div>
-        {step !== 'done' ? (
-          <>
-            <div className="mb-4">
-              <label className="text-gray-400 text-sm block mb-2">Table cost (USDC)</label>
-              <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="e.g. 5"
-                className="w-full px-4 py-3 rounded-xl text-white font-mono text-lg" style={{ background: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', outline: 'none' }} />
-            </div>
-            {error && <div className="mb-3 text-red-400 text-sm">{error}</div>}
-            <button onClick={handleCreate} disabled={!amount || step === 'approving' || step === 'creating' || wrongNetwork}
-              className="w-full py-3.5 rounded-xl font-bold text-base disabled:opacity-40"
-              style={{ background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)', color: '#fff' }}>
-              {step === 'input' && 'Create game'}
-              {step === 'approving' && '⏳ Approving USDC...'}
-              {step === 'creating' && '⏳ Creating game...'}
-            </button>
-          </>
-        ) : (
-          <div className="rounded-xl p-4 mb-4" style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)' }}>
-            <p className="text-green-300 font-bold mb-2">Game created</p>
-            <p className="text-gray-300 text-sm">Game ID: <span className="font-mono text-white">{gameId}</span></p>
-            <p className="text-gray-500 text-xs mt-2">Share this ID so others can join. Table cost: {amount} USDC.</p>
-            <button onClick={() => onCreated?.(gameId)}
-              className="w-full mt-4 py-2.5 rounded-xl font-bold text-sm text-white"
-              style={{ background: 'linear-gradient(135deg, #15803d, #22c55e)' }}>
-              🃏 Go to table
-            </button>
-          </div>
-        )}
+    <Modal onClose={onClose} title="Create USDC Table" accent="#00b4d8">
+      <div style={{ color: '#475569', fontSize: 12, lineHeight: 1.6, marginBottom: 20 }}>
+        Set the buy-in in USDC. You deposit this amount; others must match to join.
       </div>
-    </div>
+      {wrongNetwork && (
+        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: 12, marginBottom: 16, color: '#f87171', fontSize: 12 }}>
+          Switch to {CHAIN_ID === 8453 ? 'Base' : `Chain ID ${CHAIN_ID}`}
+        </div>
+      )}
+      <InfoRow label="Your USDC" value={`${balance} USDC`} />
+      <div style={{ height: 16 }} />
+      {step !== 'done' ? (
+        <>
+          <InputField label="TABLE COST (USDC)" type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="e.g. 5" />
+          {error && <div style={{ color: '#f87171', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+          <PrimaryBtn onClick={handleCreate} disabled={!amount || step !== 'input' || wrongNetwork}
+            style={{ background: 'linear-gradient(135deg, #1d4ed8, #00b4d8)', opacity: !amount || step !== 'input' ? 0.4 : 1 }}>
+            {step === 'input' && 'CREATE GAME'}
+            {step === 'approving' && '⏳ APPROVING USDC...'}
+            {step === 'creating' && '⏳ CREATING GAME...'}
+          </PrimaryBtn>
+        </>
+      ) : (
+        <div style={{ background: `${G}0d`, border: `1px solid ${G}30`, borderRadius: 12, padding: 20 }}>
+          <div style={{ color: G, fontWeight: 800, marginBottom: 10, fontSize: 14 }}>✓ GAME CREATED</div>
+          <InfoRow label="Game ID" value={String(gameId)} />
+          <InfoRow label="Table cost" value={`${amount} USDC`} />
+          <div style={{ color: '#475569', fontSize: 11, marginTop: 10, marginBottom: 16 }}>Share this Game ID so others can join.</div>
+          <PrimaryBtn onClick={() => onCreated?.(gameId)}>🃏 GO TO TABLE</PrimaryBtn>
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -419,25 +363,24 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
 
   const gameId = gameIdInput.trim() === '' ? null : (parseInt(gameIdInput, 10) | 0);
   const validGameId = gameId != null && gameId >= 0 ? gameId : null;
+
   const { data: rawGameData, error: readError } = useReadContract({
     address: usdcVaultReady() && validGameId != null ? ZAX_MIGGY_VAULT_ADDRESS : undefined,
-    abi: ZAX_MIGGY_VAULT_ABI,
-    functionName: 'getGame',
+    abi: ZAX_MIGGY_VAULT_ABI, functionName: 'getGame',
     args: validGameId != null ? [BigInt(validGameId)] : undefined,
   });
 
-  // Wagmi/viem can return tuple as array or as object with named keys; normalize to one shape
   const gameData = (() => {
     if (rawGameData == null) return null;
     if (Array.isArray(rawGameData)) return rawGameData;
-    if (typeof rawGameData === 'object' && rawGameData !== null) {
+    if (typeof rawGameData === 'object') {
       const o = rawGameData;
       return [o.players, o.playerCount, o.depositAmount, o.createdAt, o.finished, o.winner];
     }
     return null;
   })();
 
-  const [players, playerCount, depositAmount, createdAt, finished, winner] = gameData || [];
+  const [players, playerCount, depositAmount, , finished] = gameData || [];
   const depositAmountNum = depositAmount != null && typeof depositAmount === 'bigint'
     ? Number(formatUnits(depositAmount, USDC_DECIMALS)) : null;
   const count = playerCount != null ? Number(playerCount) : 0;
@@ -449,10 +392,8 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
 
   const { data: usdcAllowance } = useReadContract({
     address: usdcVaultReady() ? USDC_ADDRESS : undefined,
-    abi: ERC20_ABI,
-    functionName: 'allowance',
-    args: [address, ZAX_MIGGY_VAULT_ADDRESS],
-    watch: true,
+    abi: ERC20_ABI, functionName: 'allowance',
+    args: [address, ZAX_MIGGY_VAULT_ADDRESS], watch: true,
   });
 
   async function handleJoin() {
@@ -461,21 +402,11 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
     try {
       if (!usdcAllowance || usdcAllowance < depositAmount) {
         setStep('approving');
-        await writeContractAsync({
-          address: USDC_ADDRESS,
-          abi: ERC20_ABI,
-          functionName: 'approve',
-          args: [ZAX_MIGGY_VAULT_ADDRESS, depositAmount],
-        });
+        await writeContractAsync({ address: USDC_ADDRESS, abi: ERC20_ABI, functionName: 'approve', args: [ZAX_MIGGY_VAULT_ADDRESS, depositAmount] });
         await new Promise(r => setTimeout(r, 3000));
       }
       setStep('joining');
-      await writeContractAsync({
-        address: ZAX_MIGGY_VAULT_ADDRESS,
-        abi: ZAX_MIGGY_VAULT_ABI,
-        functionName: 'joinGame',
-        args: [BigInt(validGameId)],
-      });
+      await writeContractAsync({ address: ZAX_MIGGY_VAULT_ADDRESS, abi: ZAX_MIGGY_VAULT_ABI, functionName: 'joinGame', args: [BigInt(validGameId)] });
       await new Promise(r => setTimeout(r, 4000));
       onJoined?.();
       navigate(`/game/${validGameId}`);
@@ -486,111 +417,90 @@ function JoinUsdcGameModal({ onClose, onJoined }) {
     }
   }
 
-  function handleGoToTable() {
-    navigate(`/game/${validGameId}`);
-    onClose();
-  }
-
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)' }}>
-      <div className="w-full max-w-md rounded-2xl p-6" style={{ background: '#0f172a', border: '1px solid rgba(59,130,246,0.3)', boxShadow: '0 0 60px rgba(59,130,246,0.1)' }}>
-        <div className="flex justify-between items-center mb-4">
-          <div className="text-white font-bold text-xl">Join USDC Table</div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl">✕</button>
+    <Modal onClose={onClose} title="Join USDC Table" accent="#00b4d8">
+      <div style={{ color: '#475569', fontSize: 12, lineHeight: 1.6, marginBottom: 20 }}>
+        Enter the Game ID from the table creator to join. You will deposit the table cost in USDC.
+      </div>
+      {wrongNetwork && (
+        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: 12, marginBottom: 16, color: '#f87171', fontSize: 12 }}>
+          Switch to {CHAIN_ID === 8453 ? 'Base' : `Chain ID ${CHAIN_ID}`}
         </div>
-        <p className="text-gray-500 text-xs mb-3">Enter the game ID (from the table creator) to join. You will deposit the table cost in USDC.</p>
-        {!usdcVaultReady() && (
-          <p className="text-amber-400 text-xs mb-4">Connect to Base and set vault address (VITE_ZAX_MIGGY_VAULT_ADDRESS) to join USDC games.</p>
-        )}
-        {wrongNetwork && (
-          <div className="rounded-xl p-3 mb-4 text-sm" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
-            <p className="text-red-300 font-bold">Wrong network</p>
-            <p className="text-gray-300">Switch to {CHAIN_ID === 8453 ? 'Base' : `Chain ID ${CHAIN_ID}`}.</p>
-          </div>
-        )}
-        <div className="mb-4">
-          <label className="text-gray-400 text-sm block mb-2">Game ID</label>
-          <input type="number" value={gameIdInput} onChange={e => setGameIdInput(e.target.value)} placeholder="0"
-            className="w-full px-4 py-3 rounded-xl text-white font-mono text-lg" style={{ background: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', outline: 'none' }} />
+      )}
+      <InputField label="GAME ID" type="number" value={gameIdInput} onChange={e => setGameIdInput(e.target.value)} placeholder="0" />
+      {validGameId != null && !gameData && !readError && (
+        <div style={{ color: '#475569', fontSize: 12, marginBottom: 12 }}>Loading game details…</div>
+      )}
+      {validGameId != null && readError && (
+        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: 12, marginBottom: 16, color: '#f87171', fontSize: 12 }}>
+          Couldn't load game. Switch to Base network and try again.
         </div>
-        {validGameId == null && gameIdInput.trim() !== '' && (
-          <p className="text-amber-400 text-xs mb-3">Enter a valid game ID (e.g. 0).</p>
-        )}
-        {validGameId != null && depositAmountNum == null && !gameData && (
-          <p className="text-gray-500 text-xs mb-3">Loading game details…</p>
-        )}
-        {validGameId != null && readError && (
-          <div className="rounded-xl p-3 mb-4 text-sm" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
-            <p className="text-red-300 font-medium">Couldn’t load game</p>
-            <p className="text-gray-400 text-xs mt-1">{readError.message}</p>
-            <p className="text-amber-300 text-xs mt-2">Switch your wallet to <strong>Base</strong> network and refresh. If using WalletConnect, try MetaMask or another wallet.</p>
-          </div>
-        )}
-        {validGameId != null && gameData && count === 0 && (depositAmount == null || depositAmount === 0n) && (
-          <p className="text-amber-400 text-xs mb-3">No game found with this ID. Check the number and try again.</p>
-        )}
-        {depositAmountNum != null && depositAmountNum > 0 && (
-          <div className="rounded-xl p-3 mb-4" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-400">Table cost</span>
-              <span className="text-white font-mono">{depositAmountNum} USDC</span>
-            </div>
-            <div className="flex justify-between text-sm mt-1">
-              <span className="text-gray-400">Players</span>
-              <span className="text-white">{count}/8</span>
-            </div>
-            {isCreator && (
-              <p className="text-green-400 text-xs font-medium mt-3 pt-3 border-t border-white/10">
-                You created this game. Share game ID <span className="font-mono text-white">{validGameId}</span> so others can join.
-              </p>
-            )}
-            {isAlreadyInGame && !isCreator && (
-              <p className="text-amber-400 text-xs font-medium mt-3 pt-3 border-t border-white/10">
-                You’re already in this game.
-              </p>
-            )}
-            {finished && <p className="text-amber-400 text-xs mt-2">This game is finished.</p>}
-          </div>
-        )}
-        {error && (
-          <div className="mb-4 p-3 rounded-xl text-sm" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)' }}>
-            <p className="text-red-300 font-medium">{error}</p>
-            {error.includes('Already at a table') && (
-              <p className="text-gray-400 text-xs mt-2">Use &quot;Leave table&quot; on the table screen first, or you will be taken back to your current table.</p>
-            )}
-            {(/resource|not available|unavailable/i.test(error)) && (
-              <p className="text-amber-300 text-xs mt-2">Switch your wallet to <strong>Base</strong> network, refresh the page, then try again.</p>
-            )}
-          </div>
-        )}
-        {(isCreator || isAlreadyInGame) && !finished && depositAmountNum != null && depositAmountNum > 0 && (
-          <button onClick={handleGoToTable} disabled={!connected}
-            className="w-full py-3 rounded-xl font-bold text-sm mb-4 disabled:opacity-50"
-            style={{ background: 'linear-gradient(135deg, #15803d, #22c55e)', color: '#fff' }}>
-            {connected ? '🃏 Go to table' : '⏳ Connecting…'}
-          </button>
-        )}
-        <button onClick={handleJoin} disabled={!canJoin || step === 'approving' || step === 'joining' || wrongNetwork}
-          className="w-full py-3.5 rounded-xl font-bold text-base disabled:opacity-40"
-          style={{ background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)', color: '#fff' }}>
-          {step === 'input' && 'Join game'}
-          {step === 'approving' && '⏳ Approving USDC...'}
-          {step === 'joining' && '⏳ Joining...'}
+      )}
+      {depositAmountNum != null && depositAmountNum > 0 && (
+        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+          <InfoRow label="Table cost" value={`${depositAmountNum} USDC`} />
+          <InfoRow label="Players" value={`${count}/8`} />
+          {isCreator && <div style={{ color: G, fontSize: 11, marginTop: 10 }}>You created this game. Share ID <span style={{ fontFamily: 'monospace', color: '#fff' }}>{validGameId}</span></div>}
+          {isAlreadyInGame && !isCreator && <div style={{ color: '#f59e0b', fontSize: 11, marginTop: 10 }}>You're already in this game.</div>}
+          {finished && <div style={{ color: P, fontSize: 11, marginTop: 10 }}>This game is finished.</div>}
+        </div>
+      )}
+      {error && (
+        <div style={{ background: 'rgba(239,68,68,0.08)', borderRadius: 8, padding: 12, marginBottom: 16, color: '#f87171', fontSize: 12 }}>
+          {error}
+        </div>
+      )}
+      {(isCreator || isAlreadyInGame) && !finished && depositAmountNum > 0 && (
+        <button onClick={() => { navigate(`/game/${validGameId}`); onClose(); }} disabled={!connected}
+          style={{
+            width: '100%', padding: 12, borderRadius: 8, marginBottom: 12,
+            background: `${G}18`, border: `1px solid ${G}40`, color: G,
+            fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: connected ? 1 : 0.5,
+          }}>
+          {connected ? '🃏 GO TO TABLE' : '⏳ CONNECTING...'}
         </button>
+      )}
+      <PrimaryBtn onClick={handleJoin} disabled={!canJoin || step !== 'input' || wrongNetwork}
+        style={{ background: 'linear-gradient(135deg, #1d4ed8, #00b4d8)', opacity: !canJoin || step !== 'input' ? 0.4 : 1 }}>
+        {step === 'input' && 'JOIN GAME'}
+        {step === 'approving' && '⏳ APPROVING USDC...'}
+        {step === 'joining' && '⏳ JOINING...'}
+      </PrimaryBtn>
+    </Modal>
+  );
+}
+
+// ─── Ticker (mini) ─────────────────────────────────────────────────────────────
+const TICKER_ITEMS = [
+  '✦ HAND #842,193 — FLOPPED QUADS ON THE RIVER',
+  '♦ TOURNEY: MIDNIGHT BOUNTY STARTS IN 02:14:33',
+  '♥ PLAYER.ETH SCOOPED 12.4 ETH POT',
+  '♠ NEW TABLE OPENED — BASE STREET NLH 0.1/0.25',
+];
+
+function Ticker() {
+  const text = [...TICKER_ITEMS, ...TICKER_ITEMS].join('   ·   ');
+  return (
+    <div style={{ background: '#0d1520', borderBottom: '1px solid rgba(255,255,255,0.05)', padding: '7px 0', overflow: 'hidden' }}>
+      <div className="ticker-track" style={{ display: 'inline-block', whiteSpace: 'nowrap' }}>
+        <span style={{ color: '#334155', fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', fontFamily: 'Space Mono, monospace' }}>{text}</span>
+        <span style={{ color: '#334155', fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', fontFamily: 'Space Mono, monospace' }}>{'   ·   ' + text}</span>
       </div>
     </div>
   );
 }
 
+// ─── Main Lobby ────────────────────────────────────────────────────────────────
 export default function Lobby({ token, address }) {
   const { chips, joinTable, notifyDeposit } = useGame();
   const navigate = useNavigate();
-  const [tables,      setTables]      = useState({});
+  const [tables, setTables] = useState({});
   const [showDeposit, setShowDeposit] = useState(false);
   const [showCreateUsdc, setShowCreateUsdc] = useState(false);
   const [showJoinUsdc, setShowJoinUsdc] = useState(false);
-  const [joinError,   setJoinError]   = useState(null);
-  const [joining,     setJoining]     = useState(null);
+  const [joinError, setJoinError] = useState(null);
+  const [joining, setJoining] = useState(null);
+  const [activeFilter, setActiveFilter] = useState('ALL');
 
   useEffect(() => {
     async function fetchTables() {
@@ -599,7 +509,7 @@ export default function Lobby({ token, address }) {
           headers: { 'X-Poker-Key': SERVER_API_KEY, 'Authorization': `Bearer ${token}` },
         });
         const list = await res.json();
-        const map  = {};
+        const map = {};
         list.forEach(t => { map[t.id] = t; });
         setTables(map);
       } catch (e) { console.error(e); }
@@ -612,139 +522,194 @@ export default function Lobby({ token, address }) {
   async function handleJoin(tableId) {
     setJoinError(null);
     setJoining(tableId);
-    const tableInfo = tables[tableId];
-    const cfg = STAKE_CONFIGS[tableId] || {};
-    // Default to minimum buy-in
     const minBuyIn = tableId.startsWith('micro') ? 40
       : tableId.startsWith('low')   ? 200
       : tableId.startsWith('mid')   ? 1000
       : 4000;
-
     if (chips < minBuyIn) {
       setJoinError(`Need at least ${minBuyIn} chips. Buy some first!`);
       setJoining(null);
       return;
     }
-    try {
-      await joinTable(tableId, minBuyIn);
-    } catch (err) {
-      setJoinError(err.message);
-    }
+    try { await joinTable(tableId, minBuyIn); }
+    catch (err) { setJoinError(err.message); }
     setJoining(null);
   }
 
-  // Base + USDC: only USDC flow (buy into game → pseudo chips for gameplay)
   const usdcOnlyMode = isBaseWithUsdc();
 
+  const totalPlayers = Object.values(tables).reduce((s, t) => s + (t.players || 0), 0);
+
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8">
-      {/* Header stats */}
-      <div className="flex gap-4 mb-8 flex-wrap">
-        <StatBadge label="Address" value={`${address.slice(0,6)}...${address.slice(-4)}`} />
-        {usdcOnlyMode ? (
-          <StatBadge label="Winner fee" value="10%" color="#f87171" />
-        ) : (
-          <>
-            <StatBadge label="Your Chips"  value={chips.toLocaleString()}  color="#fbbf24" />
-            <StatBadge label="Buy-in Fee"  value="8%"  color="#f87171" />
-            <StatBadge label="Cashout Fee" value="5%"  color="#f87171" />
-            <button onClick={() => setShowDeposit(true)}
-              className="ml-auto self-center px-5 py-2.5 rounded-xl font-bold text-sm transition-all hover:scale-105 active:scale-95"
-              style={{ background: 'linear-gradient(135deg, #b45309, #d97706)',
-                color: '#fff8e7', boxShadow: '0 4px 16px rgba(245,158,11,0.3)' }}>
-              + Buy Chips
-            </button>
-          </>
-        )}
-      </div>
+    <div style={{ minHeight: 'calc(100vh - 60px)', background: '#090d14' }}>
+      <Ticker />
 
-      {usdcOnlyMode ? (
-        // USDC-only: create or join a game; chips are administered per game
-        <>
-          <div className="text-white font-bold text-xl mb-4">USDC Games (Base)</div>
-          <p className="text-gray-500 text-sm mb-6">
-            Create a game with your chosen buy-in in USDC, or join an existing game by ID.
-            You deposit USDC to enter; chips are administered for gameplay. 10% fee on winner payout.
-          </p>
-          <div className="flex gap-4 flex-wrap">
-            <button onClick={() => setShowCreateUsdc(true)}
-              className="px-5 py-2.5 rounded-xl font-bold text-sm"
-              style={{ background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)', color: '#fff' }}>
-              Create game
-            </button>
-            <button onClick={() => setShowJoinUsdc(true)}
-              className="px-5 py-2.5 rounded-xl font-bold text-sm"
-              style={{ background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.5)', color: '#93c5fd' }}>
-              Join game
-            </button>
+      {/* Header */}
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '40px 24px 0' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 28 }}>
+          <div>
+            <div style={{ color: '#334155', fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', marginBottom: 8 }}>// LOBBY</div>
+            <h1 style={{ color: '#fff', fontWeight: 900, fontSize: 32, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1 }}>
+              ACTIVE <span style={{ color: P }}>TABLES</span>
+            </h1>
           </div>
-        </>
-      ) : (
-        // Chip-based tables (local / PokerVault)
-        <>
-          <div className="rounded-xl p-4 mb-8 flex gap-4 flex-wrap"
-            style={{ background: 'rgba(251,191,36,0.05)', border: '1px solid rgba(251,191,36,0.15)' }}>
-            <div className="text-sm text-gray-400">
-              <span className="text-yellow-300 font-bold">How fees work: </span>
-              8% is deducted when you buy chips. When you win a hand and cash out, 5% is deducted from your payout.
-              <strong className="text-white"> Winners always come out ahead</strong> — the net win after fees is still substantial.
-            </div>
+          <div style={{ display: 'flex', gap: 24, color: '#475569', fontSize: 12, fontWeight: 700, letterSpacing: '0.1em' }}>
+            <span>{Object.keys(tables).length || 4} <span style={{ color: '#334155' }}>TABLES</span></span>
+            <span style={{ color: '#1e3050' }}>·</span>
+            <span style={{ color: G }}>{totalPlayers || 0} <span style={{ color: '#334155' }}>PLAYERS</span></span>
+            <span style={{ color: '#1e3050' }}>·</span>
+            {usdcOnlyMode ? (
+              <span style={{ color: '#f59e0b' }}>{chips || 0} <span style={{ color: '#334155' }}>CHIPS</span></span>
+            ) : (
+              <span>{chips.toLocaleString()} <span style={{ color: '#334155' }}>CHIPS</span></span>
+            )}
           </div>
+        </div>
 
-          <div className="text-white font-bold text-xl mb-4">Choose Your Table</div>
-
-          {joinError && (
-            <div className="mb-4 text-red-400 rounded-xl px-4 py-3 text-sm"
-              style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
-              {joinError}
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4">
-            {Object.entries(STAKE_CONFIGS).map(([tableId]) => (
-              <TableCard key={tableId} tableId={tableId} info={tables[tableId]}
-                onJoin={handleJoin} disabled={!!joining} />
+        {/* Search + filters */}
+        <div style={{ display: 'flex', gap: 12, marginBottom: 0, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            background: '#0d1520', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 8,
+            padding: '9px 14px', flex: '0 0 220px',
+          }}>
+            <span style={{ color: '#334155', fontSize: 14 }}>⊙</span>
+            <input placeholder="Search tables, stakes, players…"
+              style={{ background: 'none', border: 'none', outline: 'none', color: '#e2e8f0', fontSize: 13, width: '100%' }} />
+          </div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {FILTER_TABS.map(tab => (
+              <button key={tab} onClick={() => setActiveFilter(tab)} style={{
+                padding: '8px 14px', borderRadius: 6, fontSize: 11, fontWeight: 700, letterSpacing: '0.1em',
+                cursor: 'pointer', transition: 'all 0.15s',
+                background: activeFilter === tab ? `${G}20` : 'rgba(255,255,255,0.03)',
+                border: `1px solid ${activeFilter === tab ? `${G}50` : 'rgba(255,255,255,0.07)'}`,
+                color: activeFilter === tab ? G : '#475569',
+              }}>{tab}</button>
             ))}
           </div>
+          {!usdcOnlyMode && (
+            <button onClick={() => setShowDeposit(true)} style={{
+              marginLeft: 'auto', padding: '9px 20px', borderRadius: 8,
+              background: `${G}18`, border: `1px solid ${G}40`, color: G,
+              fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', cursor: 'pointer',
+            }}>+ BUY CHIPS</button>
+          )}
+        </div>
+      </div>
 
-          {usdcVaultReady() && (
-            <div className="mt-10 pt-8 border-t border-white/10">
-              <div className="text-white font-bold text-xl mb-4">USDC Tables (Base)</div>
-              <p className="text-gray-500 text-sm mb-4">
-                Create a table with your chosen buy-in in USDC, or join an existing game by ID. 10% fee on winner payout.
+      {/* Table list */}
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px' }}>
+        {joinError && (
+          <div style={{ margin: '16px 0', padding: '12px 16px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171', fontSize: 13 }}>
+            {joinError}
+          </div>
+        )}
+
+        {!usdcOnlyMode && (
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 16 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                {['TABLE', 'GAME', 'STAKES', 'BUY-IN', 'PLAYERS', 'AVG POT', 'H/HR', 'ACTION'].map(h => (
+                  <th key={h} style={{
+                    padding: '10px 20px', textAlign: 'left',
+                    color: '#334155', fontSize: 10, fontWeight: 700, letterSpacing: '0.16em',
+                    paddingLeft: h === 'TABLE' ? 20 : 12,
+                    paddingRight: h === 'ACTION' ? 20 : 12,
+                  }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(STAKE_CONFIGS).map(([tableId]) => (
+                <TableRow key={tableId} tableId={tableId} info={tables[tableId]}
+                  onJoin={handleJoin} disabled={!!joining} />
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {/* USDC section */}
+        <div style={{ marginTop: usdcOnlyMode ? 32 : 48, paddingTop: usdcOnlyMode ? 0 : 32, borderTop: usdcOnlyMode ? 'none' : '1px solid rgba(255,255,255,0.05)' }}>
+          {usdcOnlyMode && (
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ color: '#334155', fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', marginBottom: 8 }}>// ON-CHAIN</div>
+              <h2 style={{ color: '#fff', fontWeight: 900, fontSize: 24, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                USDC <span style={{ color: G }}>GAMES</span>
+              </h2>
+              <p style={{ color: '#334155', fontSize: 13, marginTop: 10, maxWidth: 540, lineHeight: 1.6 }}>
+                Create a game with your chosen buy-in in USDC, or join an existing game by ID. Funds are held on-chain. 10% fee on winner payout.
               </p>
-              <div className="flex gap-4 flex-wrap">
-                <button onClick={() => setShowCreateUsdc(true)}
-                  className="px-5 py-2.5 rounded-xl font-bold text-sm"
-                  style={{ background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)', color: '#fff' }}>
-                  Create game
-                </button>
-                <button onClick={() => setShowJoinUsdc(true)}
-                  className="px-5 py-2.5 rounded-xl font-bold text-sm"
-                  style={{ background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.5)', color: '#93c5fd' }}>
-                  Join game
-                </button>
-              </div>
             </div>
           )}
-        </>
-      )}
+          {!usdcOnlyMode && (
+            <div style={{ color: '#475569', fontSize: 12, marginBottom: 20, fontWeight: 600, letterSpacing: '0.1em' }}>
+              // USDC TABLES (BASE MAINNET)
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button onClick={() => setShowCreateUsdc(true)} style={{
+              padding: '12px 28px', borderRadius: 8,
+              background: 'linear-gradient(135deg, #1d4ed8, #00b4d8)',
+              color: '#fff', fontSize: 13, fontWeight: 700, letterSpacing: '0.1em',
+              cursor: 'pointer', border: 'none',
+            }}>
+              CREATE GAME
+            </button>
+            <button onClick={() => setShowJoinUsdc(true)} style={{
+              padding: '12px 28px', borderRadius: 8,
+              background: 'rgba(0,180,216,0.1)', border: '1px solid rgba(0,180,216,0.3)',
+              color: '#00b4d8', fontSize: 13, fontWeight: 700, letterSpacing: '0.1em',
+              cursor: 'pointer',
+            }}>
+              JOIN GAME
+            </button>
+          </div>
+        </div>
+      </div>
 
-      {showDeposit && (
-        <DepositModal
-          onClose={() => setShowDeposit(false)}
-          onDeposited={(net) => { notifyDeposit(net); setShowDeposit(false); }}
-        />
-      )}
-      {showCreateUsdc && (
-        <CreateUsdcGameModal
-          onClose={() => setShowCreateUsdc(false)}
-          onCreated={(id) => { navigate(`/game/${id}`, { state: { justCreated: true } }); setShowCreateUsdc(false); }}
-        />
-      )}
-      {showJoinUsdc && (
-        <JoinUsdcGameModal onClose={() => setShowJoinUsdc(false)} />
-      )}
+      {/* Tournaments section (visual) */}
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '48px 24px 60px' }}>
+        <div style={{ color: '#334155', fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', marginBottom: 8 }}>// TOURNAMENTS</div>
+        <div style={{ color: '#fff', fontWeight: 900, fontSize: 20, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 24 }}>
+          REGISTERING <span style={{ color: G }}>NOW</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+          {[
+            { name: 'Midnight Bounty', prize: '50.0', buyIn: '0.25', badge: 'STARTING SOON', time: '02:14:33', badgeColor: G },
+            { name: 'Blitz Hourly',    prize: '1.8',  buyIn: '0.01', badge: 'LIVE',          time: '00:23:11', badgeColor: G },
+            { name: 'Whale Room',      prize: '220',  buyIn: '5.00', badge: 'REGISTERING',   time: 'FRI 21:00', badgeColor: '#f59e0b' },
+            { name: 'Satoshi Sunday',  prize: '12.5', buyIn: '0.05', badge: 'REGISTERING',   time: 'SUN 20:00', badgeColor: P },
+          ].map(({ name, prize, buyIn, badge, time, badgeColor }) => (
+            <div key={name} style={{
+              background: '#0d1520', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14,
+              padding: 20, transition: 'border-color 0.2s',
+            }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'}
+              onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', color: badgeColor, background: `${badgeColor}18`, border: `1px solid ${badgeColor}30`, padding: '2px 8px', borderRadius: 4 }}>{badge}</div>
+                <div style={{ color: '#475569', fontSize: 11, fontFamily: 'Space Mono, monospace' }}>{time}</div>
+              </div>
+              <div style={{ color: '#fff', fontWeight: 800, fontSize: 16, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 12 }}>{name}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ color: '#334155', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', marginBottom: 3 }}>PRIZE</div>
+                  <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 13, fontFamily: 'Space Mono, monospace' }}>≡ {prize}</div>
+                </div>
+                <div>
+                  <div style={{ color: '#334155', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', marginBottom: 3 }}>BUY-IN</div>
+                  <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 13, fontFamily: 'Space Mono, monospace' }}>≡ {buyIn}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {showDeposit && <DepositModal onClose={() => setShowDeposit(false)} onDeposited={net => { notifyDeposit(net); setShowDeposit(false); }} />}
+      {showCreateUsdc && <CreateUsdcGameModal onClose={() => setShowCreateUsdc(false)} onCreated={id => { navigate(`/game/${id}`, { state: { justCreated: true } }); setShowCreateUsdc(false); }} />}
+      {showJoinUsdc && <JoinUsdcGameModal onClose={() => setShowJoinUsdc(false)} />}
     </div>
   );
 }
