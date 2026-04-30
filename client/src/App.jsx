@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
 import { WagmiProvider }   from 'wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RainbowKitProvider, ConnectButton } from '@rainbow-me/rainbowkit';
@@ -19,14 +19,13 @@ const P  = '#ff0070';   // hot pink
 const BG = '#090d14';   // main bg
 
 // ─── Shared nav bar ────────────────────────────────────────────────────────────
-function NavBar({ authed, connected, socketError }) {
-  const location = useLocation();
-  const path = location.pathname;
+function NavBar({ authed, connected }) {
+  const { pathname } = useLocation();
 
   const links = [
-    { label: 'HOME',  href: '/' },
-    { label: 'LOBBY', href: '/lobby' },
-    { label: 'TABLE', href: '/lobby' },
+    { label: 'HOME',  to: '/',      active: pathname === '/' },
+    { label: 'LOBBY', to: '/lobby', active: pathname === '/lobby' },
+    { label: 'TABLE', to: '/lobby', active: pathname.startsWith('/game') },
   ];
 
   return (
@@ -38,7 +37,7 @@ function NavBar({ authed, connected, socketError }) {
       borderBottom: '1px solid rgba(255,255,255,0.06)',
     }}>
       {/* Logo */}
-      <a href="/" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none' }}>
+      <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none' }}>
         <div style={{
           width: 34, height: 34, borderRadius: 8,
           background: `linear-gradient(135deg, ${G} 0%, #00b4d8 100%)`,
@@ -53,24 +52,21 @@ function NavBar({ authed, connected, socketError }) {
             ON-CHAIN · BASE
           </div>
         </div>
-      </a>
+      </Link>
 
       {/* Nav links */}
       <div style={{ display: 'flex', gap: 36 }}>
-        {links.map(({ label, href }) => {
-          const active = (href === '/' && path === '/') || (href !== '/' && path.startsWith(href));
-          return (
-            <a key={label} href={href} style={{
-              color: active ? G : '#64748b',
-              fontSize: 12, fontWeight: 700, letterSpacing: '0.14em',
-              textDecoration: 'none', paddingBottom: 3,
-              borderBottom: `2px solid ${active ? G : 'transparent'}`,
-              transition: 'color 0.15s, border-color 0.15s',
-            }}>
-              {label}
-            </a>
-          );
-        })}
+        {links.map(({ label, to, active }) => (
+          <Link key={label} to={to} style={{
+            color: active ? G : '#64748b',
+            fontSize: 12, fontWeight: 700, letterSpacing: '0.14em',
+            textDecoration: 'none', paddingBottom: 3,
+            borderBottom: `2px solid ${active ? G : 'transparent'}`,
+            transition: 'color 0.15s, border-color 0.15s',
+          }}>
+            {label}
+          </Link>
+        ))}
       </div>
 
       {/* Right */}
@@ -261,7 +257,16 @@ function LandingPage({ address, authed, loading, authError, login, serverReachab
 
         {/* CTAs */}
         <div style={{ display: 'flex', gap: 16, marginBottom: 36, flexWrap: 'wrap', justifyContent: 'center' }}>
-          {!address ? (
+          {authed ? (
+            <Link to="/lobby" style={{
+              padding: '14px 40px', borderRadius: 8, textDecoration: 'none',
+              background: `linear-gradient(135deg, ${G}, #00b4d8)`,
+              color: '#000', fontSize: 14, fontWeight: 800, letterSpacing: '0.12em',
+              boxShadow: `0 0 30px ${G}40`,
+            }}>
+              ENTER LOBBY →
+            </Link>
+          ) : !address ? (
             <>
               <ConnectButton />
               <button style={{
@@ -444,16 +449,14 @@ function AppRoutes() {
       <main style={{ paddingTop: 60 }}>
         <Routes>
           <Route path="/" element={
-            authed
-              ? <Navigate to="/lobby" replace />
-              : <LandingPage
-                  address={address}
-                  authed={authed}
-                  loading={loading}
-                  authError={authError}
-                  login={login}
-                  serverReachable={serverReachable}
-                />
+            <LandingPage
+              address={address}
+              authed={authed}
+              loading={loading}
+              authError={authError}
+              login={login}
+              serverReachable={serverReachable}
+            />
           } />
 
           <Route path="/lobby" element={
