@@ -200,11 +200,11 @@ export default function PokerTable({ myAddress }) {
   // ── Table geometry — derived from actual container size, no scaling ───────────
   const { w, h } = size;
   const cx = w / 2;
-  const cy = h * 0.46; // slightly above center so bottom player label has room
-  // Oval semi-axes: x is 34% of width, y is 55% of x — leaves clear margin inside the container
-  const rx = Math.min(w * 0.34, h * 0.52);
+  const cy = h * 0.46;
+  // Sized so player labels (avatar+label ≈ 134px total below center) always fit inside the rectangle
+  const rx = Math.min(w * 0.30, h * 0.46);
   const ry = rx * 0.55;
-  const PUSH = 54; // px outside the oval rim where avatar center lives
+  const PUSH = 44; // px outside oval rim where avatar center sits
 
   function seatPos(idx, total) {
     const deg = 90 + (idx / total) * 360;
@@ -305,92 +305,81 @@ export default function PokerTable({ myAddress }) {
         {/* ── Left: table + action bar ───────────────────────────────────────── */}
         <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
 
-          {/* ── TABLE AREA — ref'd for ResizeObserver; all children at 1:1 scale ── */}
+          {/* ── TABLE AREA ── */}
           <div
             ref={tableRef}
             style={{
-              flex: 1, position: 'relative', overflow: 'visible',
+              flex: 1, position: 'relative',
+              // overflow:hidden clips the oval glow/shadow to the rectangle — this is what makes it look rectangular
+              overflow: 'hidden',
               margin: '10px 10px 6px 10px',
               borderRadius: 20,
-              background: '#060a10',
-              // Three concentric border lines via border + box-shadow spreads
-              border: '1px solid rgba(0,230,118,0.28)',
+              // Distinctly different from page bg (#090d14) so the rectangle is visible
+              background: 'linear-gradient(160deg,#0e1828 0%,#0b1320 100%)',
+              border: '1px solid rgba(0,230,118,0.30)',
               boxShadow: [
-                '0 0 0 1px rgba(0,230,118,0.10)',   // border 2
-                '0 0 0 4px rgba(0,230,118,0.04)',    // border 3 (outermost)
-                '0 0 80px rgba(0,0,0,0.7)',           // ambient depth
-                'inset 0 1px 0 rgba(255,255,255,0.04)', // subtle inner top highlight
+                '0 0 0 1px rgba(0,230,118,0.10)',
+                '0 0 0 4px rgba(0,230,118,0.04)',
+                '0 0 60px rgba(0,0,0,0.8)',
+                'inset 0 1px 0 rgba(255,255,255,0.04)',
               ].join(', '),
             }}
           >
-            {/* ── Inner clip div: clips the oval glow/felt to the rectangle boundary ── */}
+            {/* Ambient green glow — clipped by overflow:hidden above, stays inside rectangle */}
             <div style={{
-              position:'absolute', inset:0,
-              borderRadius: 18,
-              overflow:'hidden',
-              pointerEvents:'none',
-            }}>
-              {/* Deep shadow under felt */}
-              <div style={{
-                position:'absolute',
-                left: cx - rx - 10, top: cy - ry - 10,
-                width: (rx+10)*2, height: (ry+10)*2,
-                borderRadius:'50%',
-                background:'#030608',
-                boxShadow:'0 20px 80px rgba(0,0,0,0.9)',
-              }}/>
-              {/* Ambient green glow */}
-              <div style={{
-                position:'absolute',
-                left: cx - rx - 70, top: cy - ry - 70,
-                width: (rx+70)*2, height: (ry+70)*2,
-                borderRadius:'50%',
-                background:`radial-gradient(ellipse at center,rgba(0,230,118,0.10) 0%,transparent 65%)`,
-              }}/>
-              {/* Felt with neon green border */}
-              <div style={{
-                position:'absolute',
-                left: cx - rx, top: cy - ry,
-                width: rx*2, height: ry*2,
-                borderRadius:'50%',
-                background:'radial-gradient(ellipse at 44% 40%,#0e3d1e 0%,#071c0d 58%,#040e07 100%)',
-                boxShadow:`0 0 0 2.5px ${G}, 0 0 0 7px rgba(0,230,118,0.12), 0 0 45px rgba(0,230,118,0.07)`,
-                overflow:'hidden',
-              }}>
-                <div style={{ position:'absolute', inset:0, background:'repeating-linear-gradient(0deg,transparent,transparent 20px,rgba(255,255,255,0.009) 20px,rgba(255,255,255,0.009) 21px)' }}/>
-                <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', color:'#fff', opacity:0.025, fontWeight:900, fontSize:Math.max(24,rx*0.13), letterSpacing:'0.22em', userSelect:'none', whiteSpace:'nowrap' }}>CRYPTO POKER</div>
-              </div>
-              {/* Community cards */}
-              {stage !== 'waiting' && (
-                <div style={{ position:'absolute', left:cx, top:cy - ry*0.14, transform:'translate(-50%,-50%)', display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
-                  <div style={{ display:'flex', gap:6 }}>
-                    {[0,1,2,3,4].map(i => community[i] ? (
-                      <div key={i}><Card card={community[i]} size="md"/></div>
-                    ) : (
-                      <div key={i} style={{ width:54, height:76, borderRadius:7, border:'1px solid rgba(255,255,255,0.04)', background:'rgba(0,0,0,0.18)' }}/>
-                    ))}
-                  </div>
-                  {streetLabel && <div style={{ color:`${G}70`, fontSize:10, fontWeight:700, letterSpacing:'0.22em' }}>{streetLabel}</div>}
-                </div>
-              )}
-              {/* Pot */}
-              {pot > 0 && stage !== 'waiting' && (
-                <div style={{ position:'absolute', left:cx, top:cy+ry*0.26, transform:'translate(-50%,-50%)', textAlign:'center' }}>
-                  <div style={{ color:'rgba(255,255,255,0.18)', fontSize:9, fontWeight:700, letterSpacing:'0.22em', marginBottom:2 }}>MAIN POT</div>
-                  <div style={{ color:G, fontWeight:900, fontSize:Math.max(20,rx*0.09), fontFamily:'Space Mono,monospace', textShadow:`0 0 20px ${G}55` }}>≡ {pot}</div>
-                </div>
-              )}
-              {/* Waiting text */}
-              {stage === 'waiting' && (
-                <div style={{ position:'absolute', left:cx, top:cy, transform:'translate(-50%,-50%)', textAlign:'center' }}>
-                  <div style={{ color:'rgba(255,255,255,0.1)', fontSize:12, fontWeight:700, letterSpacing:'0.24em' }}>
-                    {canManage && !isHost ? 'WAITING FOR HOST…' : canManage && isHost ? 'PRESS START GAME' : 'WAITING FOR PLAYERS…'}
-                  </div>
-                </div>
-              )}
-            </div>{/* end inner clip div */}
+              position:'absolute', pointerEvents:'none',
+              left: cx - rx - 60, top: cy - ry - 60,
+              width: (rx+60)*2, height: (ry+60)*2,
+              borderRadius:'50%',
+              background:`radial-gradient(ellipse at center,rgba(0,230,118,0.09) 0%,transparent 65%)`,
+            }}/>
 
-            {/* ── Player stations — outside the clip div so labels never get cropped ── */}
+            {/* Felt oval */}
+            <div style={{
+              position:'absolute', pointerEvents:'none',
+              left: cx - rx, top: cy - ry,
+              width: rx*2, height: ry*2,
+              borderRadius:'50%',
+              background:'radial-gradient(ellipse at 44% 40%,#0e3d1e 0%,#071c0d 58%,#040e07 100%)',
+              boxShadow:`0 0 0 2.5px ${G}, 0 0 0 7px rgba(0,230,118,0.12), 0 0 40px rgba(0,230,118,0.06), 0 10px 50px rgba(0,0,0,0.8)`,
+              overflow:'hidden',
+            }}>
+              <div style={{ position:'absolute', inset:0, background:'repeating-linear-gradient(0deg,transparent,transparent 20px,rgba(255,255,255,0.009) 20px,rgba(255,255,255,0.009) 21px)' }}/>
+              <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', color:'#fff', opacity:0.025, fontWeight:900, fontSize:Math.max(22,rx*0.12), letterSpacing:'0.22em', userSelect:'none', whiteSpace:'nowrap' }}>CRYPTO POKER</div>
+            </div>
+
+            {/* Community cards */}
+            {stage !== 'waiting' && (
+              <div style={{ position:'absolute', pointerEvents:'none', left:cx, top:cy - ry*0.14, transform:'translate(-50%,-50%)', display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
+                <div style={{ display:'flex', gap:6 }}>
+                  {[0,1,2,3,4].map(i => community[i] ? (
+                    <div key={i}><Card card={community[i]} size="md"/></div>
+                  ) : (
+                    <div key={i} style={{ width:54, height:76, borderRadius:7, border:'1px solid rgba(255,255,255,0.04)', background:'rgba(0,0,0,0.18)' }}/>
+                  ))}
+                </div>
+                {streetLabel && <div style={{ color:`${G}70`, fontSize:10, fontWeight:700, letterSpacing:'0.22em' }}>{streetLabel}</div>}
+              </div>
+            )}
+
+            {/* Pot */}
+            {pot > 0 && stage !== 'waiting' && (
+              <div style={{ position:'absolute', pointerEvents:'none', left:cx, top:cy+ry*0.28, transform:'translate(-50%,-50%)', textAlign:'center' }}>
+                <div style={{ color:'rgba(255,255,255,0.18)', fontSize:9, fontWeight:700, letterSpacing:'0.22em', marginBottom:2 }}>MAIN POT</div>
+                <div style={{ color:G, fontWeight:900, fontSize:Math.max(18,rx*0.09), fontFamily:'Space Mono,monospace', textShadow:`0 0 20px ${G}55` }}>≡ {pot}</div>
+              </div>
+            )}
+
+            {/* Waiting text */}
+            {stage === 'waiting' && (
+              <div style={{ position:'absolute', pointerEvents:'none', left:cx, top:cy, transform:'translate(-50%,-50%)', textAlign:'center' }}>
+                <div style={{ color:'rgba(255,255,255,0.1)', fontSize:12, fontWeight:700, letterSpacing:'0.24em' }}>
+                  {canManage && !isHost ? 'WAITING FOR HOST…' : canManage && isHost ? 'PRESS START GAME' : 'WAITING FOR PLAYERS…'}
+                </div>
+              </div>
+            )}
+
+            {/* ── Player stations ── */}
             {players.map((player, i) => {
               const { ax, ay, cos, sin } = seatPos(i, players.length);
               const isMe = (player.address||'').toLowerCase() === me;
