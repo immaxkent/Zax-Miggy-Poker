@@ -201,9 +201,7 @@ export default function PokerTable({ myAddress }) {
   const { w, h } = size;
   const cx = w / 2;
   const cy = h * 0.44;
-  // rx: 28% of container width but never more than 260px or more than 30% of height
-  // This fills ~55% of a 960px container while leaving clear rectangular frame on all sides
-  const rx = Math.min(w * 0.28, h * 0.30, 260);
+  const rx = Math.min(w * 0.31, h * 0.36, 300);
   const ry = rx * 0.56;
   const PUSH = 52;
 
@@ -326,23 +324,14 @@ export default function PokerTable({ myAddress }) {
               ].join(', '),
             }}
           >
-            {/* Ambient green glow — clipped by overflow:hidden above, stays inside rectangle */}
-            <div style={{
-              position:'absolute', pointerEvents:'none',
-              left: cx - rx - 60, top: cy - ry - 60,
-              width: (rx+60)*2, height: (ry+60)*2,
-              borderRadius:'50%',
-              background:`radial-gradient(ellipse at center,rgba(0,230,118,0.09) 0%,transparent 65%)`,
-            }}/>
-
-            {/* Felt oval */}
+            {/* Felt oval — no outer glow so it doesn't bleed green into the rectangle corners */}
             <div style={{
               position:'absolute', pointerEvents:'none',
               left: cx - rx, top: cy - ry,
               width: rx*2, height: ry*2,
               borderRadius:'50%',
               background:'radial-gradient(ellipse at 44% 40%,#0e3d1e 0%,#071c0d 58%,#040e07 100%)',
-              boxShadow:`0 0 0 2.5px ${G}, 0 0 0 7px rgba(0,230,118,0.12), 0 0 40px rgba(0,230,118,0.06), 0 10px 50px rgba(0,0,0,0.8)`,
+              boxShadow:`0 0 0 2.5px ${G}, 0 0 0 6px rgba(0,230,118,0.18), 0 8px 40px rgba(0,0,0,0.8)`,
               overflow:'hidden',
             }}>
               <div style={{ position:'absolute', inset:0, background:'repeating-linear-gradient(0deg,transparent,transparent 20px,rgba(255,255,255,0.009) 20px,rgba(255,255,255,0.009) 21px)' }}/>
