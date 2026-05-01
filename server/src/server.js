@@ -69,7 +69,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
-app.use(rateLimiter(60, 60_000));
+app.use(rateLimiter(120, 60_000));
 
 // ── Health check (no auth — used by AWS ALB) ──────────────────────────────────
 app.get('/health', (_, res) => {
@@ -82,7 +82,7 @@ app.get('/health', (_, res) => {
 });
 
 // ── Auth: Step 1 — get nonce challenge ────────────────────────────────────────
-app.post('/auth/challenge', requireApiKey, rateLimiter(10, 60_000), (req, res) => {
+app.post('/auth/challenge', requireApiKey, rateLimiter(30, 60_000), (req, res) => {
   const { address } = req.body;
   if (!ethers.isAddress(address)) return res.status(400).json({ error: 'Invalid address' });
   const nonce = createChallenge(address);
@@ -93,7 +93,7 @@ app.post('/auth/challenge', requireApiKey, rateLimiter(10, 60_000), (req, res) =
 });
 
 // ── Auth: Step 2 — verify signature, issue JWT ────────────────────────────────
-app.post('/auth/verify', requireApiKey, rateLimiter(10, 60_000), async (req, res) => {
+app.post('/auth/verify', requireApiKey, rateLimiter(30, 60_000), async (req, res) => {
   try {
     const { address, signature } = req.body;
     if (!ethers.isAddress(address)) return res.status(400).json({ error: 'Invalid address' });
