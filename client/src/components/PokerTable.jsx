@@ -197,24 +197,48 @@ export default function PokerTable({ myAddress }) {
     { l:'MAX', v: maxChips },
   ];
 
-  // ── Table geometry — derived from actual container size, no scaling ───────────
+  // ── Table geometry — rectangular felt, players distributed around the perimeter ─
   const { w, h } = size;
   const cx = w / 2;
-  const cy = h * 0.44;
-  const rx = Math.min(w * 0.31, h * 0.36, 300);
-  const ry = rx * 0.56;
-  const PUSH = 52;
+  const cy = h / 2;
+  // Felt rectangle — occupies the inner portion of the dark container
+  const fw = Math.min(w * 0.68, w - 110);
+  const fh = Math.min(h * 0.62, h - 110);
+  const fLeft = cx - fw / 2;
+  const fTop  = cy - fh / 2;
+  // Distance from felt edge to avatar center
+  const RAIL = 36;
 
   function seatPos(idx, total) {
-    const deg = 90 + (idx / total) * 360;
-    const rad = (deg * Math.PI) / 180;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
+    const perimeter = 2 * (fw + fh);
+    // Start at bottom-center, travel clockwise
+    const startOffset = fw * 1.5 + fh;
+    const d = ((idx / total) * perimeter + startOffset) % perimeter;
+
+    let px, py, nx, ny;
+    if (d < fw) {
+      // Top edge — left to right
+      px = fLeft + d; py = fTop; nx = 0; ny = -1;
+    } else if (d < fw + fh) {
+      // Right edge — top to bottom
+      px = fLeft + fw; py = fTop + (d - fw); nx = 1; ny = 0;
+    } else if (d < 2 * fw + fh) {
+      // Bottom edge — right to left
+      px = fLeft + fw - (d - fw - fh); py = fTop + fh; nx = 0; ny = 1;
+    } else {
+      // Left edge — bottom to top
+      px = fLeft; py = fTop + fh - (d - 2 * fw - fh); nx = -1; ny = 0;
+    }
+
+    const ax = px + nx * RAIL;
+    const ay = py + ny * RAIL;
+    const dx = cx - ax;
+    const dy = cy - ay;
+    const dist = Math.sqrt(dx * dx + dy * dy);
     return {
-      ax: cx + (rx + PUSH) * cos,
-      ay: cy + (ry + PUSH) * sin,
-      cos,
-      sin,
+      ax, ay,
+      cos: dist > 0 ? dx / dist : 0,
+      sin: dist > 0 ? dy / dist : 0,
     };
   }
 
@@ -309,38 +333,38 @@ export default function PokerTable({ myAddress }) {
             ref={tableRef}
             style={{
               flex: 1, position: 'relative',
-              // overflow:hidden clips the oval glow/shadow to the rectangle — this is what makes it look rectangular
               overflow: 'hidden',
               margin: '10px 10px 6px 10px',
-              borderRadius: 20,
-              // Distinctly different from page bg (#090d14) so the rectangle is visible
-              background: 'linear-gradient(160deg,#0e1828 0%,#0b1320 100%)',
-              border: '1px solid rgba(0,230,118,0.30)',
+              borderRadius: 12,
+              // Clearly distinct from page bg #090d14 — this dark navy makes the rectangle visible
+              background: 'linear-gradient(160deg,#0a1929 0%,#071422 100%)',
+              border: '1.5px solid rgba(0,230,118,0.40)',
               boxShadow: [
-                '0 0 0 1px rgba(0,230,118,0.10)',
-                '0 0 0 4px rgba(0,230,118,0.04)',
-                '0 0 60px rgba(0,0,0,0.8)',
-                'inset 0 1px 0 rgba(255,255,255,0.04)',
+                '0 0 0 3px rgba(0,230,118,0.06)',
+                '0 0 40px rgba(0,0,0,0.9)',
+                'inset 0 0 80px rgba(0,0,0,0.5)',
+                'inset 0 1px 0 rgba(255,255,255,0.05)',
               ].join(', '),
             }}
           >
-            {/* Felt oval — no outer glow so it doesn't bleed green into the rectangle corners */}
+            {/* Felt — rounded rectangle clearly inside the dark container rail */}
             <div style={{
               position:'absolute', pointerEvents:'none',
-              left: cx - rx, top: cy - ry,
-              width: rx*2, height: ry*2,
-              borderRadius:'50%',
-              background:'radial-gradient(ellipse at 44% 40%,#0e3d1e 0%,#071c0d 58%,#040e07 100%)',
-              boxShadow:`0 0 0 2.5px ${G}, 0 0 0 6px rgba(0,230,118,0.18), 0 8px 40px rgba(0,0,0,0.8)`,
+              left: fLeft, top: fTop,
+              width: fw, height: fh,
+              borderRadius: 18,
+              background:'radial-gradient(ellipse at 50% 40%,#1a5c2a 0%,#0d3518 55%,#061609 100%)',
+              border:`2px solid ${G}60`,
+              boxShadow:`0 0 0 5px rgba(0,230,118,0.07), inset 0 0 60px rgba(0,0,0,0.45)`,
               overflow:'hidden',
             }}>
-              <div style={{ position:'absolute', inset:0, background:'repeating-linear-gradient(0deg,transparent,transparent 20px,rgba(255,255,255,0.009) 20px,rgba(255,255,255,0.009) 21px)' }}/>
-              <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', color:'#fff', opacity:0.025, fontWeight:900, fontSize:Math.max(22,rx*0.12), letterSpacing:'0.22em', userSelect:'none', whiteSpace:'nowrap' }}>CRYPTO POKER</div>
+              <div style={{ position:'absolute', inset:0, background:'repeating-linear-gradient(0deg,transparent,transparent 20px,rgba(255,255,255,0.008) 20px,rgba(255,255,255,0.008) 21px)' }}/>
+              <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', color:'#fff', opacity:0.025, fontWeight:900, fontSize:Math.max(18,fw*0.06), letterSpacing:'0.22em', userSelect:'none', whiteSpace:'nowrap' }}>CRYPTO POKER</div>
             </div>
 
-            {/* Community cards */}
+            {/* Community cards — centered in the felt */}
             {stage !== 'waiting' && (
-              <div style={{ position:'absolute', pointerEvents:'none', left:cx, top:cy - ry*0.14, transform:'translate(-50%,-50%)', display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
+              <div style={{ position:'absolute', pointerEvents:'none', left:cx, top:cy - 18, transform:'translate(-50%,-50%)', display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
                 <div style={{ display:'flex', gap:6 }}>
                   {[0,1,2,3,4].map(i => community[i] ? (
                     <div key={i}><Card card={community[i]} size="md"/></div>
@@ -352,11 +376,11 @@ export default function PokerTable({ myAddress }) {
               </div>
             )}
 
-            {/* Pot */}
+            {/* Pot — just below community cards */}
             {pot > 0 && stage !== 'waiting' && (
-              <div style={{ position:'absolute', pointerEvents:'none', left:cx, top:cy+ry*0.28, transform:'translate(-50%,-50%)', textAlign:'center' }}>
+              <div style={{ position:'absolute', pointerEvents:'none', left:cx, top:cy + 56, transform:'translate(-50%,-50%)', textAlign:'center' }}>
                 <div style={{ color:'rgba(255,255,255,0.18)', fontSize:9, fontWeight:700, letterSpacing:'0.22em', marginBottom:2 }}>MAIN POT</div>
-                <div style={{ color:G, fontWeight:900, fontSize:Math.max(18,rx*0.09), fontFamily:'Space Mono,monospace', textShadow:`0 0 20px ${G}55` }}>≡ {pot}</div>
+                <div style={{ color:G, fontWeight:900, fontSize:Math.max(18, fw*0.045), fontFamily:'Space Mono,monospace', textShadow:`0 0 20px ${G}55` }}>≡ {pot}</div>
               </div>
             )}
 
