@@ -19,7 +19,7 @@ const P  = '#ff0070';   // hot pink
 const BG = '#090d14';   // main bg
 
 // ─── Shared nav bar ────────────────────────────────────────────────────────────
-function NavBar({ authed, connected }) {
+function NavBar({ authed, connected, onlinePlayers }) {
   const { pathname } = useLocation();
 
   const links = [
@@ -78,7 +78,7 @@ function NavBar({ authed, connected }) {
             boxShadow: `0 0 6px ${connected ? G : '#ef4444'}`,
           }} />
           <span style={{ color: '#64748b', fontSize: 11, fontWeight: 600, letterSpacing: '0.1em' }}>
-            1,284 ONLINE
+            {onlinePlayers ?? '—'} ONLINE
           </span>
         </div>
         <ConnectButton chainStatus="icon" showBalance={false} />
@@ -398,6 +398,19 @@ function AppRoutes() {
   const { connected, gameState, notification, error: socketError } = useGame();
   const [serverReachable, setServerReachable] = useState(null);
   const [showConnectionHint, setShowConnectionHint] = useState(false);
+  const [onlinePlayers, setOnlinePlayers] = useState(null);
+
+  useEffect(() => {
+    function poll() {
+      fetch(`${SERVER_URL}/health`)
+        .then(r => r.json())
+        .then(d => { if (d?.players != null) setOnlinePlayers(d.players); })
+        .catch(() => {});
+    }
+    poll();
+    const id = setInterval(poll, 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (connected || socketError) { setShowConnectionHint(false); return; }
@@ -428,7 +441,7 @@ function AppRoutes() {
         a:hover { opacity: 0.85; }
       `}</style>
 
-      <NavBar authed={authed} connected={connected} socketError={socketError} />
+      <NavBar authed={authed} connected={connected} socketError={socketError} onlinePlayers={onlinePlayers} />
 
       {/* Global toast */}
       {notification && (
