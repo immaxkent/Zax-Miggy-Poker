@@ -77,6 +77,14 @@ export function GameProvider({ children, authToken, walletAddress }) {
       setGameState(null);
       setNotification(null);
     });
+    socket.on('gameOver', ({ winner }) => {
+      const isWinner = (winner || '').toLowerCase() === (walletAddress || '').toLowerCase();
+      setNotification({ type: isWinner ? 'win' : 'lose', message: isWinner ? '🏆 You won the game! Settling on-chain…' : '💀 You busted out. Better luck next time.' });
+      setTimeout(() => {
+        setGameState(null);
+        setNotification(null);
+      }, 4000);
+    });
     socket.on('chatMessage', ({ from, text }) => {
       setChatLog(log => [...log, { from, text }]);
     });

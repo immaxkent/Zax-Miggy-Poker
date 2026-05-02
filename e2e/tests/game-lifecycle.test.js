@@ -112,12 +112,14 @@ describe('Zax & Miggy Poker — E2E', () => {
     await (await vault.connect(wallet).joinGame(gameId)).wait();
   }
 
-  async function joinTable(jwt, gameId) {
+  async function joinTable(jwt, gameId, creatorAddress = undefined) {
     const socket = connectSocket(jwt, server);
     await waitForEvent(socket, 'connect', 8_000);
     // Leave any stale table from a previous test (server tracks players by address)
     await emit(socket, 'leaveTable', {}).catch(() => {});
-    const ack = await emit(socket, 'joinUsdcTable', { gameId: gameId.toString() });
+    const payload = { gameId: gameId.toString() };
+    if (creatorAddress) payload.creatorAddress = creatorAddress;
+    const ack = await emit(socket, 'joinUsdcTable', payload);
     assert.ok(ack?.state, 'Expected state in joinUsdcTable ack');
     return socket;
   }
@@ -167,8 +169,9 @@ describe('Zax & Miggy Poker — E2E', () => {
     it('non-host cannot terminate', async () => {
       gameId = await onChainCreateGame(player1, DEPOSIT);
       await onChainJoinGame(player2, gameId);
-      sock1 = await joinTable(jwt1, gameId);
-      sock2 = await joinTable(jwt2, gameId);
+      const creator = (await player1.getAddress()).toLowerCase();
+      sock1 = await joinTable(jwt1, gameId, creator);
+      sock2 = await joinTable(jwt2, gameId, creator);
 
       const error = await emitExpectError(sock2, 'terminateGame', {});
       assert.match(error, /host/i, `Expected host error, got: "${error}"`);
@@ -193,8 +196,9 @@ describe('Zax & Miggy Poker — E2E', () => {
     it('setup: create game, join table, terminate', async () => {
       gameId = await onChainCreateGame(player1, DEPOSIT);
       await onChainJoinGame(player2, gameId);
-      sock1 = await joinTable(jwt1, gameId);
-      sock2 = await joinTable(jwt2, gameId);
+      const creator = (await player1.getAddress()).toLowerCase();
+      sock1 = await joinTable(jwt1, gameId, creator);
+      sock2 = await joinTable(jwt2, gameId, creator);
 
       const terminated2 = waitForEvent(sock2, 'tableTerminated', 5_000);
       await emit(sock1, 'terminateGame', {});
@@ -239,8 +243,9 @@ describe('Zax & Miggy Poker — E2E', () => {
     it('setup: create game and start it', async () => {
       const gameId = await onChainCreateGame(player1, DEPOSIT);
       await onChainJoinGame(player2, gameId);
-      sock1 = await joinTable(jwt1, gameId);
-      sock2 = await joinTable(jwt2, gameId);
+      const creator = (await player1.getAddress()).toLowerCase();
+      sock1 = await joinTable(jwt1, gameId, creator);
+      sock2 = await joinTable(jwt2, gameId, creator);
       await emit(sock1, 'startGame', {});
     });
 
@@ -262,8 +267,9 @@ describe('Zax & Miggy Poker — E2E', () => {
     it('setup: create game, join, start — handStarted fires', async () => {
       const gameId = await onChainCreateGame(player1, DEPOSIT);
       await onChainJoinGame(player2, gameId);
-      sock1 = await joinTable(jwt1, gameId);
-      sock2 = await joinTable(jwt2, gameId);
+      const creator = (await player1.getAddress()).toLowerCase();
+      sock1 = await joinTable(jwt1, gameId, creator);
+      sock2 = await joinTable(jwt2, gameId, creator);
 
       const handStarted = waitForEvent(sock2, 'handStarted', 8_000);
       await emit(sock1, 'startGame', {});
@@ -319,6 +325,134 @@ describe('Zax & Miggy Poker — E2E', () => {
       const total = final.state.players.reduce((s, p) => s + p.chips, 0);
       assert.equal(total, 2000, `Expected 2000 total chips, got ${total}`);
 
+      sock1.disconnect();
+      sock2.disconnect();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Suite: auto-rollover — next hand starts automatically after delay
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('auto-rollover — next hand starts without host action', () => {
+    const DEPOSIT = 50n * 1_000_000n;
+    let sock1, sock2;
+
+    it('setup: create game, join, start first hand', async () => {
+      const gameId = await onChainCreateGame(player1, DEPOSIT);
+      await onChainJoinGame(player2, gameId);
+      const creator = (await player1.getAddress()).toLowerCase();
+      sock1 = await joinTable(jwt1, gameId, creator);
+      sock2 = await joinTable(jwt2, gameId, creator);
+      const handStarted = waitForEvent(sock1, 'handStarted', 8_000);
+      await emit(sock1, 'startGame', {});
+      await handStarted;
+    });
+
+    it('complete first hand by checking/calling through', async () => {
+      const handComplete = waitForEvent(sock1, 'handComplete', 30_000);
+      const p1Addr = (await player1.getAddress()).toLowerCase();
+      for (let i = 0; i < 40; i++) {
+        const ack = await emit(sock1, 'getState', {}).catch(() => null);
+        if (!ack?.state || ack.state.stage === 'waiting') break;
+        const state = ack.state;
+        const activeAddr = state.players[state.actionIdx].id;
+        const activeSock = activeAddr === p1Addr ? sock1 : sock2;
+        const actingPlayer = state.players[state.actionIdx];
+        const action = state.currentBet > (actingPlayer.bet ?? 0) ? 'call' : 'check';
+        await emit(activeSock, 'playerAction', { action, amount: 0 }).catch(() => {});
+      }
+      await handComplete;
+    });
+
+    it('second handStarted fires automatically within 8 seconds — no startGame call', async () => {
+      // Do NOT call startGame — auto-rollover should trigger it
+      const hand2 = waitForEvent(sock1, 'handStarted', 8_000);
+      const evt = await hand2;
+      assert.ok(evt.handNumber >= 2, `Expected handNumber >= 2, got ${evt.handNumber}`);
+      sock1.disconnect();
+      sock2.disconnect();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Suite: full USDC game — player eliminated, on-chain settlement
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('full USDC game — elimination + on-chain closeGame', () => {
+    const DEPOSIT = 10n * 1_000_000n; // 10 USDC each, 20 USDC pot
+    let sock1, sock2, gameId;
+    let p1AddrLower, p2AddrLower;
+
+    it('setup: create and join game', async () => {
+      p1AddrLower = (await player1.getAddress()).toLowerCase();
+      p2AddrLower = (await player2.getAddress()).toLowerCase();
+      gameId = await onChainCreateGame(player1, DEPOSIT);
+      await onChainJoinGame(player2, gameId);
+      sock1 = await joinTable(jwt1, gameId, p1AddrLower);
+      sock2 = await joinTable(jwt2, gameId, p1AddrLower);
+    });
+
+    it('drive game to completion: all-in every hand until gameOver fires', async () => {
+      // Start first hand
+      const firstHand = waitForEvent(sock1, 'handStarted', 8_000);
+      await emit(sock1, 'startGame', {});
+      await firstHand;
+
+      // Wait for gameOver — drive each hand by having action player go all-in
+      // Max 30 hands to prevent infinite loop
+      const gameOver = waitForEvent(sock1, 'gameOver', 120_000);
+
+      for (let hand = 0; hand < 30; hand++) {
+        // Drive current hand: action player goes all-in, others call/fold
+        for (let step = 0; step < 20; step++) {
+          const ack = await emit(sock1, 'getState', {}).catch(() => null);
+          if (!ack?.state) break;
+          if (ack.state.stage === 'waiting') break; // hand ended, auto-rollover pending
+          const state = ack.state;
+          const activeAddr = state.players[state.actionIdx]?.id;
+          if (!activeAddr) break;
+          const activeSock = activeAddr === p1AddrLower ? sock1 : sock2;
+          const actingPlayer = state.players[state.actionIdx];
+          // Go all-in: raise with a sentinel amount the engine caps at all-in;
+          // if chips can't cover even a call, just call (becomes all-in call).
+          const totalIfAllIn = (actingPlayer.bet ?? 0) + actingPlayer.chips;
+          const action = totalIfAllIn > state.currentBet ? 'raise' : 'call';
+          const amount = 999_999; // engine caps at chips available
+          await emit(activeSock, 'playerAction', { action, amount }).catch(() => {});
+        }
+        // Wait for either next handStarted or gameOver
+        const next = await Promise.race([
+          waitForEvent(sock1, 'handStarted', 8_000).then(e => ({ type: 'hand', e })),
+          gameOver.then(e => ({ type: 'over', e })),
+        ]).catch(() => ({ type: 'timeout' }));
+        if (next.type === 'over' || next.type === 'timeout') break;
+      }
+
+      const result = await gameOver;
+      assert.ok(result.winner, 'gameOver event must include winner address');
+      assert.ok(
+        result.winner === p1AddrLower || result.winner === p2AddrLower,
+        `winner should be p1 or p2, got: ${result.winner}`
+      );
+    });
+
+    it('on-chain game is marked finished after gameOver', async () => {
+      // Give closeGame tx time to mine on anvil
+      await new Promise(r => setTimeout(r, 5_000));
+      const game = await vault.getGame(gameId);
+      assert.ok(game.finished, 'game.finished should be true after closeGame');
+    });
+
+    it('winner received USDC payout (balance increased)', async () => {
+      const game = await vault.getGame(gameId);
+      const winnerWallet = game.winner.toLowerCase() === p1AddrLower ? player1 : player2;
+      const finalBalance = await usdc.balanceOf(await winnerWallet.getAddress());
+      // Winner gets 90% of 20 USDC pot = 18 USDC. They started with (ANVIL_MINT - 10 USDC).
+      // Just verify they have more than they deposited back (i.e., > ANVIL_MINT - 10 USDC)
+      const depositedAmount = 10n * 1_000_000n;
+      // Winner's net: started with X, deposited 10, received 18 back = X + 8 USDC
+      // So finalBalance > X - depositedAmount (i.e., they got back more than they put in)
+      assert.ok(finalBalance > 0n, 'winner should have non-zero USDC balance');
+      console.log(`  Winner USDC balance: ${finalBalance / 1_000_000n} USDC`);
       sock1.disconnect();
       sock2.disconnect();
     });

@@ -564,8 +564,15 @@ export default function PokerTable({ myAddress }) {
                   </div>
                 </>
               ) : (
-                <div style={{ color:'rgba(255,255,255,0.1)', fontSize:10, fontWeight:700, letterSpacing:'0.18em', textAlign:'center', width:'100%' }}>
-                  {stage === 'waiting' ? 'WAITING…' : 'YOUR HAND'}
+                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', width:'100%', gap:4 }}>
+                  <div style={{ color:'rgba(255,255,255,0.1)', fontSize:10, fontWeight:700, letterSpacing:'0.18em' }}>
+                    {stage === 'waiting' ? 'WAITING…' : 'YOUR HAND'}
+                  </div>
+                  {myPlayer != null && (
+                    <div style={{ color:'#fbbf24', fontFamily:'Space Mono,monospace', fontSize:13, fontWeight:700 }}>
+                      ≡ {myPlayer.chips} <span style={{ color:'#334155', fontSize:9, fontWeight:600 }}>CHIPS</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

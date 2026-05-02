@@ -31,6 +31,7 @@ import {
   signWithdrawalVoucher,
   getServerSignerAddress,
   signAndSubmitCancelGame,
+  signAndSubmitCloseGame,
 } from './security.js';
 import { PokerTable } from './poker-engine.js';
 
@@ -334,16 +335,61 @@ io.on('connection', (socket) => {
 
       // Hand finished: applyAction returns toPublicState (no `results`). Engine sets pendingHandComplete.
       if (table.pendingHandComplete) {
+        const currentTableId = player.tableId;
         const hc = table.pendingHandComplete;
         table.pendingHandComplete = null;
-        io.to(player.tableId).emit('handComplete', {
+        io.to(currentTableId).emit('handComplete', {
           handNumber: hc.handNumber,
           results:    hc.results,
           community:  hc.community,
           holeCards:  hc.holeCards,
           verify:     hc.verify,
         });
-        issueWinnerVouchers(io, hc.results, player.tableId);
+        issueWinnerVouchers(io, hc.results, currentTableId);
+
+        // ── Auto-finish USDC game when a player is busted (0 chips) ──────────
+        if (currentTableId.startsWith('usdc-')) {
+          const busted = table.players.filter(p => p.chips === 0);
+          if (busted.length > 0) {
+            const winner = table.players.find(p => p.chips > 0);
+            if (winner) {
+              console.log(`🏆 USDC game ${currentTableId} over — winner: ${winner.id}`);
+              const gameId = currentTableId.replace('usdc-', '');
+              terminatedTables.add(currentTableId);
+              io.to(currentTableId).emit('gameOver', { winner: winner.id, gameId: Number(gameId) });
+              // Settle on-chain asynchronously
+              signAndSubmitCloseGame(gameId, winner.id).then(() => {
+                console.log(`✅ closeGame(${gameId}) mined`);
+              }).catch(err => {
+                console.error(`❌ closeGame(${gameId}) failed:`, err.message);
+              });
+              // Clean up table (stand everyone up)
+              [...table.players].forEach(p => {
+                const pl = players.get(p.id);
+                if (pl) pl.tableId = null;
+                const s = findSocket(io, p.id);
+                if (s) {
+                  s.leave(currentTableId);
+                  s.emit('chipsUpdated', { chips: pl?.chips ?? 0 });
+                }
+              });
+              tables.delete(currentTableId);
+            }
+          }
+        }
+
+        // ── Auto-rollover: start next hand after 4 seconds if game continues ──
+        // Only if the table still exists (wasn't just torn down by game-over)
+        setTimeout(() => {
+          const stillExists = tables.get(currentTableId);
+          if (!stillExists) return;
+          if (stillExists.stage !== 'waiting') return;          // hand already started somehow
+          if (!stillExists.canStart()) return;                  // not enough players
+          const started = tryStartHand(io, stillExists);
+          if (started) {
+            console.log(`♻️  Auto-rolled to next hand on ${currentTableId}`);
+          }
+        }, 4_000);
       }
 
       ack?.({ ok: true });
