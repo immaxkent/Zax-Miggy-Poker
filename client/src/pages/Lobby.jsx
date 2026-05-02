@@ -533,6 +533,7 @@ export default function Lobby({ token, address }) {
   const [joinError, setJoinError] = useState(null);
   const [joining, setJoining] = useState(null);
   const [activeFilter, setActiveFilter] = useState('ALL');
+  const [onlinePlayers, setOnlinePlayers] = useState(null);
 
   // ── On-chain USDC game list ──────────────────────────────────────────────────
   const { data: nextGameIdData } = useReadContract({
@@ -578,13 +579,18 @@ export default function Lobby({ token, address }) {
   useEffect(() => {
     async function fetchTables() {
       try {
-        const res = await fetch(`${SERVER_URL}/tables`, {
-          headers: { 'X-Poker-Key': SERVER_API_KEY, 'Authorization': `Bearer ${token}` },
-        });
-        const list = await res.json();
+        const [tablesRes, healthRes] = await Promise.all([
+          fetch(`${SERVER_URL}/tables`, {
+            headers: { 'X-Poker-Key': SERVER_API_KEY, 'Authorization': `Bearer ${token}` },
+          }),
+          fetch(`${SERVER_URL}/health`),
+        ]);
+        const list = await tablesRes.json();
         const map = {};
         list.forEach(t => { map[t.id] = t; });
         setTables(map);
+        const health = await healthRes.json();
+        if (health?.players != null) setOnlinePlayers(health.players);
       } catch (e) { console.error(e); }
     }
     fetchTables();
@@ -627,9 +633,9 @@ export default function Lobby({ token, address }) {
             </h1>
           </div>
           <div style={{ display: 'flex', gap: 24, color: '#475569', fontSize: 12, fontWeight: 700, letterSpacing: '0.1em' }}>
-            <span>{Object.keys(tables).length || 4} <span style={{ color: '#334155' }}>TABLES</span></span>
+            <span>{Object.keys(tables).length || 0} <span style={{ color: '#334155' }}>TABLES</span></span>
             <span style={{ color: '#1e3050' }}>·</span>
-            <span style={{ color: G }}>{totalPlayers || 0} <span style={{ color: '#334155' }}>PLAYERS</span></span>
+            <span style={{ color: G }}>{onlinePlayers ?? '—'} <span style={{ color: '#334155' }}>ONLINE</span></span>
             <span style={{ color: '#1e3050' }}>·</span>
             {usdcOnlyMode ? (
               <span style={{ color: '#f59e0b' }}>{chips || 0} <span style={{ color: '#334155' }}>CHIPS</span></span>
