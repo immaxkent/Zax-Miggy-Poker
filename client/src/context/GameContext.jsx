@@ -12,6 +12,8 @@ export function GameProvider({ children, authToken, walletAddress }) {
   const [notification,setNotification]= useState(null);
   const [lastHand,    setLastHand]    = useState(null);
   const [victory,     setVictory]     = useState(null);
+  const [actionTimer, setActionTimer] = useState(null);
+  const [nextHandCountdown, setNextHandCountdown] = useState(null);
   const [tables,      setTables]      = useState([]);
   const [error,       setError]       = useState(null);
   const [chatLog,     setChatLog]     = useState([{ from: 'DEALER', text: 'Welcome to the table.', system: true }]);
@@ -68,6 +70,8 @@ export function GameProvider({ children, authToken, walletAddress }) {
     });
     socket.on('handComplete', (result) => setLastHand(result));
     socket.on('chipsUpdated', ({ chips }) => setChips(chips));
+    socket.on('actionTimer', (payload) => setActionTimer(payload || null));
+    socket.on('nextHandCountdown', (payload) => setNextHandCountdown(payload || null));
     socket.on('winNotification', ({ amount }) => {
       setNotification({ type: 'win', message: `You won ${amount} chips! 🎉` });
       setTimeout(() => setNotification(null), 4000);
@@ -77,10 +81,14 @@ export function GameProvider({ children, authToken, walletAddress }) {
     socket.on('tableTerminated', () => {
       setGameState(null);
       setNotification(null);
+      setActionTimer(null);
+      setNextHandCountdown(null);
     });
     socket.on('gameOver', ({ winner, gameId, summary }) => {
       const isWinner = (winner || '').toLowerCase() === (walletAddress || '').toLowerCase();
-      setNotification({ type: isWinner ? 'win' : 'lose', message: isWinner ? '🏆 You won the game! Settling on-chain…' : '💀 You busted out. Better luck next time.' });
+      setNotification({ type: isWinner ? 'win' : 'lose', message: isWinner ? '🏆 YOU WON! Settling on-chain…' : '💀 YOU LOST. Better luck next game.' });
+      setActionTimer(null);
+      setNextHandCountdown(null);
       if (isWinner) {
         setVictory(v => ({
           ...(v || {}),
@@ -221,7 +229,7 @@ export function GameProvider({ children, authToken, walletAddress }) {
   return (
     <GameContext.Provider value={{
       connected, gameState, chips, notification,
-      lastHand, victory, tables, error, chatLog,
+      lastHand, victory, actionTimer, nextHandCountdown, tables, error, chatLog,
       joinTable, joinUsdcTable, leaveTable, playerAction, startGame, terminateGame, notifyDeposit, refreshTableState, sendChat,
       dismissVictory,
       setChips,

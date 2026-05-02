@@ -366,6 +366,20 @@ export class PokerTable {
     return this.toPublicState(playerId);
   }
 
+  getTimeoutActionForCurrentPlayer() {
+    const p = this.players[this.actionIdx];
+    if (!p) throw new Error('No active player for timeout');
+    return p.bet < this.currentBet ? 'fold' : 'check';
+  }
+
+  applyTimeoutForCurrentPlayer() {
+    const p = this.players[this.actionIdx];
+    if (!p) throw new Error('No active player for timeout');
+    const action = this.getTimeoutActionForCurrentPlayer();
+    this.applyAction(p.id, action);
+    return { playerId: p.id, action };
+  }
+
   _advanceAction() {
     // "Active" = can still act this round (not folded, not all-in)
     const active = this.players.filter(p => !p.folded && !p.allIn);

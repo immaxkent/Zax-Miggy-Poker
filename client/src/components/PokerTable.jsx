@@ -98,12 +98,14 @@ function handName(cards) {
 
 // ─── Main component ────────────────────────────────────────────────────────────
 export default function PokerTable({ myAddress }) {
-  const { gameState, playerAction, leaveTable, startGame, terminateGame, lastHand, chatLog, sendChat } = useGame();
+  const { gameState, playerAction, leaveTable, startGame, terminateGame, lastHand, chatLog, sendChat, actionTimer, nextHandCountdown } = useGame();
   const [handHistory,  setHandHistory]  = useState([]);
   const [chatInput,    setChatInput]    = useState('');
   const [sideTab,      setSideTab]      = useState('history');
   const [handResult,   setHandResult]   = useState(null);
   const [welcomeVisible, setWelcomeVisible] = useState(true);
+  const [actionCountdown, setActionCountdown] = useState(0);
+  const [nextHandSeconds, setNextHandSeconds] = useState(0);
   const [startError,   setStartError]   = useState(null);
   const [raiseAmt,     setRaiseAmt]     = useState('');
   // Container dimensions — updated by ResizeObserver, drives all geometry at 1:1 pixel scale
@@ -188,6 +190,32 @@ export default function PokerTable({ myAddress }) {
     const t = setTimeout(() => setWelcomeVisible(false), 2600);
     return () => clearTimeout(t);
   }, [gameState?.tableId]);
+  useEffect(() => {
+    if (!actionTimer?.deadline) {
+      setActionCountdown(0);
+      return;
+    }
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((actionTimer.deadline - Date.now()) / 1000));
+      setActionCountdown(left);
+    };
+    tick();
+    const id = setInterval(tick, 250);
+    return () => clearInterval(id);
+  }, [actionTimer?.deadline]);
+  useEffect(() => {
+    if (!nextHandCountdown?.deadline) {
+      setNextHandSeconds(nextHandCountdown?.seconds || 0);
+      return;
+    }
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((nextHandCountdown.deadline - Date.now()) / 1000));
+      setNextHandSeconds(left);
+    };
+    tick();
+    const id = setInterval(tick, 250);
+    return () => clearInterval(id);
+  }, [nextHandCountdown?.deadline, nextHandCountdown?.seconds]);
 
   if (!gameState) return null;
 
@@ -195,6 +223,7 @@ export default function PokerTable({ myAddress }) {
   const me           = (myAddress||'').toLowerCase();
   const myPlayer     = players.find(p => (p.address||'').toLowerCase() === me);
   const actionPlayer = players.find(p => p.isAction);
+  const timedPlayerId = (actionTimer?.playerId || '').toLowerCase();
   const contenders   = players.filter(p => !p.folded);
   const actionable   = contenders.filter(p => !p.allIn);
   const allInRunout  = ['flop', 'turn', 'river'].includes(stage) && contenders.length >= 2 && actionable.length === 0;
@@ -299,8 +328,14 @@ export default function PokerTable({ myAddress }) {
             ...(isUsdc && potUsdc != null ? [{ v:'·', c:'#1e3050' }, { v:`≡ ${Number(potUsdc).toFixed(2)} USDC`, c:G }] : []),
             ...(allInRunout ? [{ v:'·', c:'#1e3050' }, { v:'ALL-IN RUNOUT', c:'#38bdf8' }] : []),
             ...(actionPlayer ? [{ v:'·', c:'#1e3050' }, {
-              v: (actionPlayer.address||'').toLowerCase()===me ? 'YOUR TURN ⏳' : `${(actionPlayer.address||'').slice(0,8)}… ⏳`,
+              v: (actionPlayer.address||'').toLowerCase()===me
+                ? `YOUR TURN ⏳ ${actionCountdown || ''}`.trim()
+                : `${(actionPlayer.address||'').slice(0,8)}… ⏳ ${actionCountdown || ''}`.trim(),
               c: '#fbbf24',
+            }] : []),
+            ...(stage === 'waiting' && nextHandSeconds > 0 ? [{ v:'·', c:'#1e3050' }, {
+              v: `NEXT HAND IN ${nextHandSeconds}s`,
+              c: '#38bdf8',
             }] : []),
           ].map(({ v, c, mono }, i) => (
             <span key={i} style={{
@@ -453,7 +488,7 @@ export default function PokerTable({ myAddress }) {
                       display: 'flex', gap: 3, zIndex: 19,
                       pointerEvents: 'none',
                     }}>
-                      {stage === 'showdown' && player.cards?.length > 0
+                      {player.cards?.length > 0
                         ? player.cards.map((c,ci) => <Card key={ci} card={c} size="sm"/>)
                         : [...Array(player.cardCount||2)].map((_,ci) => <Card key={ci} hidden size="sm"/>)
                       }
@@ -539,6 +574,9 @@ export default function PokerTable({ myAddress }) {
                       )}
                       {!player.connected && (
                         <div style={{ fontSize:8, color:'#f59e0b', fontWeight:800, letterSpacing:'0.1em' }}>AWAY</div>
+                      )}
+                      {(player.id || '').toLowerCase() === timedPlayerId && actionCountdown > 0 && (
+                        <div style={{ fontSize:8, color:'#38bdf8', fontWeight:800, letterSpacing:'0.08em' }}>{actionCountdown}s</div>
                       )}
                     </div>
                   </div>
@@ -872,7 +910,7 @@ export default function PokerTable({ myAddress }) {
             boxShadow: `0 0 28px ${G}25`,
             textTransform: 'uppercase',
           }}>
-            Welcome to the table
+                    {`Welcome to the table ${gameName}`}
           </div>
         </div>
       )}

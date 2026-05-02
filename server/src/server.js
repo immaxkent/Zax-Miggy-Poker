@@ -45,6 +45,8 @@ const tables  = new Map();  // tableId → PokerTable
 const usdcStacks = new Map();  // tableId → Map<playerId, chips> (stack when they left, for rejoin)
 const terminatedTables = new Set();  // tableIds that have been terminated (blocks rejoin)
 const runoutTimers = new Map(); // tableId -> timeout for all-in runout pacing
+const actionTimers = new Map(); // tableId -> timeout for current turn
+const nextHandCountdownTimers = new Map(); // tableId -> interval for next-hand countdown broadcast
 const RUNOUT_DELAY_MS = 3_000;
 
 // ─── Pre-create tables for each stake level ───────────────────────────────────
@@ -342,6 +344,7 @@ io.on('connection', (socket) => {
         return;
       }
       scheduleAllInRunout(io, table);
+      scheduleActionTimer(io, table);
 
       ack?.({ ok: true });
     } catch (err) {
@@ -373,6 +376,7 @@ io.on('connection', (socket) => {
         return ack?.({ error: 'Could not start hand — need enough players and table must be in lobby (waiting).' });
       }
       scheduleAllInRunout(io, table);
+      scheduleActionTimer(io, table);
       ack?.({ ok: true, state: enrichState(table, table.toPublicState(playerId), playerId) });
     } catch (err) {
       ack?.({ error: err.message });
@@ -419,6 +423,8 @@ io.on('connection', (socket) => {
         }
       });
       clearRunoutTimer(tableId);
+      clearActionTimer(tableId);
+      clearNextHandCountdown(tableId);
       tables.delete(tableId);
       if (isUsdc && stackMap) usdcStacks.set(tableId, stackMap);
       ack?.({ ok: true });
@@ -509,6 +515,67 @@ function clearRunoutTimer(tableId) {
   }
 }
 
+function clearActionTimer(tableId) {
+  const t = actionTimers.get(tableId);
+  if (t) {
+    clearTimeout(t);
+    actionTimers.delete(tableId);
+  }
+  io.to(tableId).emit('actionTimer', null);
+}
+
+function clearNextHandCountdown(tableId) {
+  const t = nextHandCountdownTimers.get(tableId);
+  if (t) {
+    clearInterval(t);
+    nextHandCountdownTimers.delete(tableId);
+  }
+  io.to(tableId).emit('nextHandCountdown', null);
+}
+
+function scheduleActionTimer(io, table) {
+  if (!table?.id) return;
+  const tableId = table.id;
+  clearActionTimer(tableId);
+
+  const actionableNow =
+    table.stage !== 'waiting' &&
+    table.stage !== 'showdown' &&
+    table.actionIdx >= 0 &&
+    table.players[table.actionIdx] &&
+    !table.players[table.actionIdx].folded &&
+    !table.players[table.actionIdx].allIn;
+  if (!actionableNow) return;
+
+  const player = table.players[table.actionIdx];
+  const timeoutMs = Math.max(1, Number(config.tables.actionTimeoutSeconds || 30)) * 1000;
+  const deadline = Date.now() + timeoutMs;
+  io.to(tableId).emit('actionTimer', { playerId: player.id, deadline, seconds: Math.ceil(timeoutMs / 1000) });
+
+  const timer = setTimeout(() => {
+    actionTimers.delete(tableId);
+    const latest = tables.get(tableId);
+    if (!latest) return;
+    const current = latest.players[latest.actionIdx];
+    if (!current || current.id !== player.id) return;
+    try {
+      const timed = latest.applyTimeoutForCurrentPlayer();
+      io.to(tableId).emit('chatMessage', {
+        from: 'DEALER',
+        text: `${timed.playerId.slice(0, 8)}... timed out: auto-${timed.action}.`,
+        system: true,
+      });
+      emitGameStateToAllAtTable(io, latest, `[TIMEOUT] ${timed.playerId} -> ${timed.action}`);
+      if (handlePendingHandComplete(io, latest, tableId)) return;
+      scheduleAllInRunout(io, latest);
+      scheduleActionTimer(io, latest);
+    } catch (err) {
+      console.error(`[TIMEOUT] Failed on ${tableId}:`, err.message);
+    }
+  }, timeoutMs);
+  actionTimers.set(tableId, timer);
+}
+
 function shouldAutoRunout(table) {
   if (!table || !['flop', 'turn', 'river'].includes(table.stage)) return false;
   const contenders = table.players.filter(p => !p.folded);
@@ -518,7 +585,16 @@ function shouldAutoRunout(table) {
 }
 
 function scheduleNextHandIfPossible(io, tableId) {
-  setTimeout(() => {
+  clearNextHandCountdown(tableId);
+  let secondsLeft = 4;
+  io.to(tableId).emit('nextHandCountdown', { seconds: secondsLeft, deadline: Date.now() + secondsLeft * 1000 });
+  const tick = setInterval(() => {
+    secondsLeft -= 1;
+    if (secondsLeft > 0) {
+      io.to(tableId).emit('nextHandCountdown', { seconds: secondsLeft, deadline: Date.now() + secondsLeft * 1000 });
+      return;
+    }
+    clearNextHandCountdown(tableId);
     const stillExists = tables.get(tableId);
     if (!stillExists) return;
     if (stillExists.stage !== 'waiting') return; // hand already in progress
@@ -526,9 +602,11 @@ function scheduleNextHandIfPossible(io, tableId) {
     const started = tryStartHand(io, stillExists);
     if (started) {
       scheduleAllInRunout(io, stillExists);
+      scheduleActionTimer(io, stillExists);
       console.log(`♻️  Auto-rolled to next hand on ${tableId}`);
     }
-  }, 4_000);
+  }, 1_000);
+  nextHandCountdownTimers.set(tableId, tick);
 }
 
 function serializeReceipt(r) {
@@ -545,6 +623,7 @@ function serializeReceipt(r) {
 function handlePendingHandComplete(io, table, tableId) {
   if (!table?.pendingHandComplete) return false;
   clearRunoutTimer(tableId);
+  clearActionTimer(tableId);
 
   const hc = table.pendingHandComplete;
   table.pendingHandComplete = null;
@@ -635,6 +714,8 @@ function handlePendingHandComplete(io, table, tableId) {
           }
         });
         clearRunoutTimer(tableId);
+        clearActionTimer(tableId);
+        clearNextHandCountdown(tableId);
         tables.delete(tableId);
         return true;
       }
@@ -656,6 +737,7 @@ function scheduleAllInRunout(io, table) {
 
     latest._nextStage();
     emitGameStateToAllAtTable(io, latest, `[RUNOUT] stage=${latest.stage}`);
+    scheduleActionTimer(io, latest);
 
     if (handlePendingHandComplete(io, latest, tableId)) return;
     if (!shouldAutoRunout(latest)) return;
@@ -688,11 +770,19 @@ function leaveTable(playerId, socket, ack) {
   socket.leave(table.id);
   io.to(table.id).emit('playerLeft', { playerId });
   socket.emit('chipsUpdated', { chips: player.chips });
+  if (table.players.length === 0) {
+    clearRunoutTimer(table.id);
+    clearActionTimer(table.id);
+    clearNextHandCountdown(table.id);
+  } else {
+    scheduleActionTimer(io, table);
+  }
   ack?.({ chips: player.chips });
 }
 
 function tryStartHand(io, table) {
   if (!table.canStart() || table.stage !== 'waiting') return false;
+  clearNextHandCountdown(table.id);
   table.gameStarted = true;
   const info = table.startHand();
   emitGameStateToAllAtTable(io, table, 'hand start');

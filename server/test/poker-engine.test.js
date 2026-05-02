@@ -596,10 +596,31 @@ describe('All-In Scenarios', () => {
     // Both go all-in
     table.applyAction(table.players[table.actionIdx].id, 'raise', 1000);
     table.applyAction(table.players[table.actionIdx].id, 'call');
-    // Should reach showdown and resolve — not freeze
+    // Engine should pause on flop for server-paced runout (no freeze)
+    assert.equal(table.stage, 'flop');
+    assert.equal(table.community.length, 3);
+    // Simulate server pacing streets
+    table._nextStage();
+    assert.equal(table.stage, 'turn');
+    table._nextStage();
+    assert.equal(table.stage, 'river');
+    table._nextStage();
     assert.equal(table.stage, 'waiting');
     assert.ok(table.pendingHandComplete !== null);
     assert.equal(table.community.length, 5);
+  });
+
+  test('all-in runout reveals both hole cards before showdown', () => {
+    const table = makeTable(2, 1000);
+    table.startHand();
+    table.applyAction(table.players[table.actionIdx].id, 'raise', 1000);
+    table.applyAction(table.players[table.actionIdx].id, 'call');
+    // At this point stage should be flop and both contenders all-in.
+    assert.equal(table.stage, 'flop');
+    const p0View = table.toPublicState('p0');
+    const p1View = table.toPublicState('p1');
+    assert.equal(Array.isArray(p0View.players.find(p => p.id === 'p1').cards), true);
+    assert.equal(Array.isArray(p1View.players.find(p => p.id === 'p0').cards), true);
   });
 });
 
@@ -801,6 +822,38 @@ describe('Full Hand Integration', () => {
     while (table.stage !== 'waiting') checkAround(table);
     const total = table.players.reduce((s, p) => s + p.chips, 0);
     assert.equal(total, 3000);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 13. Action Timeout Behavior
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Action Timeout Behavior', () => {
+  test('timeout auto-checks when no bet is outstanding', () => {
+    const table = makeTable(3, 1000);
+    table.startHand();
+    // Finish preflop to get to flop where currentBet=0
+    checkAround(table);
+    const actingBefore = table.players[table.actionIdx].id;
+    const timeoutAction = table.getTimeoutActionForCurrentPlayer();
+    assert.equal(timeoutAction, 'check');
+    const applied = table.applyTimeoutForCurrentPlayer();
+    assert.equal(applied.playerId, actingBefore);
+    assert.equal(applied.action, 'check');
+  });
+
+  test('timeout auto-folds when player owes chips', () => {
+    const table = makeTable(3, 1000);
+    table.startHand();
+    table.applyAction('p0', 'raise', 30); // now p1 owes chips
+    assert.equal(table.players[table.actionIdx].id, 'p1');
+    const timeoutAction = table.getTimeoutActionForCurrentPlayer();
+    assert.equal(timeoutAction, 'fold');
+    const applied = table.applyTimeoutForCurrentPlayer();
+    assert.equal(applied.playerId, 'p1');
+    assert.equal(applied.action, 'fold');
+    assert.equal(table.players.find(p => p.id === 'p1').folded, true);
   });
 });
 

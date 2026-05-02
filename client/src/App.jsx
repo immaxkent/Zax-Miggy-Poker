@@ -450,9 +450,11 @@ function AppRoutes() {
           style={{
             background: notification.type === 'win'
               ? 'linear-gradient(135deg, #052e16, #14532d)'
-              : 'linear-gradient(135deg, #0c1a3a, #1e3a5f)',
-            border: `1px solid ${notification.type === 'win' ? G : '#3b82f6'}`,
-            boxShadow: `0 8px 32px ${notification.type === 'win' ? `${G}40` : 'rgba(59,130,246,0.3)'}`,
+              : notification.type === 'lose'
+                ? 'linear-gradient(135deg, #3a0c16, #5f1e2b)'
+                : 'linear-gradient(135deg, #0c1a3a, #1e3a5f)',
+            border: `1px solid ${notification.type === 'win' ? G : notification.type === 'lose' ? '#fb7185' : '#3b82f6'}`,
+            boxShadow: `0 8px 32px ${notification.type === 'win' ? `${G}40` : notification.type === 'lose' ? 'rgba(251,113,133,0.35)' : 'rgba(59,130,246,0.3)'}`,
             color: 'white', animation: 'slideDown 0.3s ease',
           }}>
           {notification.message}
