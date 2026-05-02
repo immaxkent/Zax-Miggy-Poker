@@ -413,7 +413,7 @@ export default function PokerTable({ myAddress }) {
                       display: 'flex', gap: 3, zIndex: 19,
                       pointerEvents: 'none',
                     }}>
-                      {player.cards?.length > 0
+                      {stage === 'showdown' && player.cards?.length > 0
                         ? player.cards.map((c,ci) => <Card key={ci} card={c} size="sm"/>)
                         : [...Array(player.cardCount||2)].map((_,ci) => <Card key={ci} hidden size="sm"/>)
                       }
