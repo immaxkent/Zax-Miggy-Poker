@@ -436,7 +436,7 @@ function JoinUsdcGameModal({ onClose, onJoined, openGames = [], initialGameId = 
         setStep('approving');
         const approveHash = await writeContractAsync({ address: USDC_ADDRESS, abi: ERC20_ABI, functionName: 'approve', args: [ZAX_MIGGY_VAULT_ADDRESS, depositAmount] });
         console.log('[JOIN] approve tx sent:', approveHash, '— waiting for receipt…');
-        await waitForTransactionReceipt(wagmiConfig, { hash: approveHash });
+        await waitForTransactionReceipt(wagmiConfig, { hash: approveHash, timeout: 90_000 });
         console.log('[JOIN] approve confirmed');
       } else {
         console.log('[JOIN] allowance sufficient — skipping approve');
@@ -445,14 +445,21 @@ function JoinUsdcGameModal({ onClose, onJoined, openGames = [], initialGameId = 
       setStep('joining');
       const joinHash = await writeContractAsync({ address: ZAX_MIGGY_VAULT_ADDRESS, abi: ZAX_MIGGY_VAULT_ABI, functionName: 'joinGame', args: [BigInt(validGameId)] });
       console.log('[JOIN] joinGame tx sent:', joinHash, '— waiting for receipt…');
-      await waitForTransactionReceipt(wagmiConfig, { hash: joinHash });
+      await waitForTransactionReceipt(wagmiConfig, { hash: joinHash, timeout: 90_000 });
       console.log('[JOIN] joinGame confirmed — navigating to /game/' + validGameId);
       onJoined?.();
-      navigate(`/game/${validGameId}`);
+      navigate(`/game/${validGameId}`, { state: { justJoined: true } });
       onClose();
     } catch (err) {
       console.error('[JOIN] error:', err);
-      setError(err.shortMessage || err.message || 'Transaction failed');
+      const isTimeout = err.name === 'WaitForTransactionReceiptTimeoutError' || err.message?.includes('timed out');
+      if (isTimeout) {
+        const hash = err.transactionHash || err.hash;
+        const hashMsg = hash ? ` Tx: ${hash.slice(0,10)}… — check Basescan.` : '';
+        setError(`Transaction timed out — it may still confirm.${hashMsg}`);
+      } else {
+        setError(err.shortMessage || err.message || 'Transaction failed');
+      }
       setStep('input');
     }
   }

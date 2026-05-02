@@ -24,6 +24,7 @@ export default function GameRoute() {
   const navigate = useNavigate();
   const location = useLocation();
   const justCreated = location.state?.justCreated === true;
+  const justJoined  = location.state?.justJoined  === true;
   const { address } = useAccount();
   const { connected, joinUsdcTable, leaveTable, gameState } = useGame();
   const [joinError, setJoinError] = useState(null);
@@ -64,8 +65,8 @@ export default function GameRoute() {
       console.log('[GAMEROUTE] joinEffect — skipping (connected/isAtThisTable/gameId guard)');
       return;
     }
-    if (vaultReady && (isLoading || (!isPlayer && isFetchedAfterMount))) {
-      console.log('[GAMEROUTE] joinEffect — skipping (vault check: isLoading=' + isLoading + ' isPlayer=' + isPlayer + ' isFetchedAfterMount=' + isFetchedAfterMount + ')');
+    if (vaultReady && (isLoading || (!isPlayer && !justJoined && isFetchedAfterMount))) {
+      console.log('[GAMEROUTE] joinEffect — skipping (vault check: isLoading=' + isLoading + ' isPlayer=' + isPlayer + ' justJoined=' + justJoined + ' isFetchedAfterMount=' + isFetchedAfterMount + ')');
       return;
     }
     console.log('[GAMEROUTE] joinEffect — calling joinUsdcTable(' + gameId + ')');
@@ -77,7 +78,7 @@ export default function GameRoute() {
         setJoinError(err.message || 'Could not join table');
       }
     });
-  }, [connected, isAtThisTable, isLoading, isPlayer, vaultReady, gameId, joinUsdcTable]);
+  }, [connected, isAtThisTable, isLoading, isPlayer, justJoined, vaultReady, gameId, joinUsdcTable]);
 
   // ── Clean up orphaned server state: at table socket but not on-chain ──────
   useEffect(() => {
@@ -102,7 +103,7 @@ export default function GameRoute() {
   if (vaultReady) {
     if (isLoading) { console.log('[GAMEROUTE] render — isLoading, showing verifying'); return <CenteredMsg>Verifying access…</CenteredMsg>; }
     if (readError) { console.error('[GAMEROUTE] readError:', readError); return <CenteredMsg isError>Could not verify game access — make sure you're on Base network.</CenteredMsg>; }
-    if (gameData && !isPlayer && !justCreated && isFetchedAfterMount) { console.warn('[GAMEROUTE] not a player — redirecting to lobby. players:', players, 'addrLower:', addrLower); return <Navigate to="/lobby" replace />; }
+    if (gameData && !isPlayer && !justCreated && !justJoined && isFetchedAfterMount) { console.warn('[GAMEROUTE] not a player — redirecting to lobby. players:', players, 'addrLower:', addrLower); return <Navigate to="/lobby" replace />; }
     if (finished) { console.log('[GAMEROUTE] game finished'); return <CenteredMsg>Game #{gameId} has finished.</CenteredMsg>; }
   }
 
