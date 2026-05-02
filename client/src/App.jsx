@@ -11,6 +11,7 @@ import { GameProvider, useGame } from './context/GameContext';
 import Lobby      from './pages/Lobby';
 import PokerTable from './components/PokerTable';
 import GameRoute  from './components/GameRoute';
+import VictoryModal from './components/VictoryModal';
 
 const queryClient = new QueryClient();
 
@@ -395,7 +396,7 @@ function LandingPage({ address, authed, loading, authError, login, serverReachab
 // ─── Inner app (inside router + providers) ────────────────────────────────────
 function AppRoutes() {
   const { token, authed, loading, authError, login, address } = useAuth();
-  const { connected, gameState, notification, error: socketError } = useGame();
+  const { connected, gameState, notification, victory, dismissVictory, error: socketError } = useGame();
   const [serverReachable, setServerReachable] = useState(null);
   const [showConnectionHint, setShowConnectionHint] = useState(false);
   const [onlinePlayers, setOnlinePlayers] = useState(null);
@@ -457,6 +458,8 @@ function AppRoutes() {
           {notification.message}
         </div>
       )}
+
+      <VictoryModal victory={victory} onClose={dismissVictory} />
 
       {/* Main — padded for fixed nav, except on game pages which handle their own height */}
       <main style={{ paddingTop: 60 }}>

@@ -11,6 +11,7 @@ export function GameProvider({ children, authToken, walletAddress }) {
   const [chips,       setChips]       = useState(0);
   const [notification,setNotification]= useState(null);
   const [lastHand,    setLastHand]    = useState(null);
+  const [victory,     setVictory]     = useState(null);
   const [tables,      setTables]      = useState([]);
   const [error,       setError]       = useState(null);
   const [chatLog,     setChatLog]     = useState([{ from: 'DEALER', text: 'Welcome to the table.', system: true }]);
@@ -77,13 +78,51 @@ export function GameProvider({ children, authToken, walletAddress }) {
       setGameState(null);
       setNotification(null);
     });
-    socket.on('gameOver', ({ winner }) => {
+    socket.on('gameOver', ({ winner, gameId, summary }) => {
       const isWinner = (winner || '').toLowerCase() === (walletAddress || '').toLowerCase();
       setNotification({ type: isWinner ? 'win' : 'lose', message: isWinner ? '🏆 You won the game! Settling on-chain…' : '💀 You busted out. Better luck next time.' });
+      if (isWinner) {
+        setVictory(v => ({
+          ...(v || {}),
+          winner,
+          gameId: gameId ?? v?.gameId ?? null,
+          status: 'settling',
+          summary: {
+            ...(v?.summary || {}),
+            ...(summary || {}),
+          },
+        }));
+        socket.emit('getState', {}, (res) => {
+          const me = res?.state?.players?.find(p => (p.id || '').toLowerCase() === (walletAddress || '').toLowerCase());
+          setVictory(v => ({
+            ...(v || {}),
+            status: 'settling',
+            winner,
+            chipsNow: me?.chips ?? null,
+            ...(typeof res?.state?.tableId === 'string' && res.state.tableId.startsWith('usdc-')
+              ? { gameId: Number(res.state.tableId.replace('usdc-', '')) || null }
+              : {}),
+          }));
+        });
+      }
       setTimeout(() => {
         setGameState(null);
         setNotification(null);
       }, 4000);
+    });
+    socket.on('usdcSettlement', (payload) => {
+      if (!payload) return;
+      const isWinner = (payload.winner || '').toLowerCase() === (walletAddress || '').toLowerCase();
+      if (!isWinner) return;
+      setVictory(v => ({
+        ...(v || {}),
+        ...payload,
+        status: payload.status || 'settling',
+        summary: {
+          ...(v?.summary || {}),
+          ...(payload.summary || {}),
+        },
+      }));
     });
     socket.on('chatMessage', ({ from, text }) => {
       setChatLog(log => [...log, { from, text }]);
@@ -177,11 +216,14 @@ export function GameProvider({ children, authToken, walletAddress }) {
     });
   }, []);
 
+  const dismissVictory = useCallback(() => setVictory(null), []);
+
   return (
     <GameContext.Provider value={{
       connected, gameState, chips, notification,
-      lastHand, tables, error, chatLog,
+      lastHand, victory, tables, error, chatLog,
       joinTable, joinUsdcTable, leaveTable, playerAction, startGame, terminateGame, notifyDeposit, refreshTableState, sendChat,
+      dismissVictory,
       setChips,
     }}>
       {children}

@@ -101,7 +101,7 @@ export default function PokerTable({ myAddress }) {
   const { gameState, playerAction, leaveTable, startGame, terminateGame, lastHand, chatLog, sendChat } = useGame();
   const [handHistory,  setHandHistory]  = useState([]);
   const [chatInput,    setChatInput]    = useState('');
-  const [sideTab,      setSideTab]      = useState('chat');
+  const [sideTab,      setSideTab]      = useState('history');
   const [handResult,   setHandResult]   = useState(null);
   const [startError,   setStartError]   = useState(null);
   const [raiseAmt,     setRaiseAmt]     = useState('');
@@ -175,6 +175,7 @@ export default function PokerTable({ myAddress }) {
         { hand: lastHand.handNumber || h.length + 1, payouts },
         ...h.slice(0, 11),
       ]);
+      setSideTab('history');
     }
   }, [lastHand]);
 
@@ -188,6 +189,9 @@ export default function PokerTable({ myAddress }) {
   const me           = (myAddress||'').toLowerCase();
   const myPlayer     = players.find(p => (p.address||'').toLowerCase() === me);
   const actionPlayer = players.find(p => p.isAction);
+  const contenders   = players.filter(p => !p.folded);
+  const actionable   = contenders.filter(p => !p.allIn);
+  const allInRunout  = ['flop', 'turn', 'river'].includes(stage) && contenders.length >= 2 && actionable.length === 0;
   const isHost       = !!me && (gameState.hostId||'').toLowerCase() === me;
   const canManage    = stage === 'waiting' && !!gameState.hostId;
   const canTerminate = stage === 'waiting' && !gameState.gameStarted;
@@ -287,6 +291,7 @@ export default function PokerTable({ myAddress }) {
             { v: `STAKES ≡ ${cfg?.smallBlind||0}/${cfg?.bigBlind||0}`,    c:'#475569' },
             ...(myPlayer ? [{ v:'·', c:'#1e3050' }, { v:`CHIPS ≡ ${myPlayer.chips}`, c:'#fbbf24', mono:true }] : []),
             ...(isUsdc && potUsdc != null ? [{ v:'·', c:'#1e3050' }, { v:`≡ ${Number(potUsdc).toFixed(2)} USDC`, c:G }] : []),
+            ...(allInRunout ? [{ v:'·', c:'#1e3050' }, { v:'ALL-IN RUNOUT', c:'#38bdf8' }] : []),
             ...(actionPlayer ? [{ v:'·', c:'#1e3050' }, {
               v: (actionPlayer.address||'').toLowerCase()===me ? 'YOUR TURN ⏳' : `${(actionPlayer.address||'').slice(0,8)}… ⏳`,
               c: '#fbbf24',
@@ -386,6 +391,22 @@ export default function PokerTable({ myAddress }) {
                   ))}
                 </div>
                 {streetLabel && <div style={{ color:`${G}70`, fontSize:10, fontWeight:700, letterSpacing:'0.22em' }}>{streetLabel}</div>}
+                {allInRunout && (
+                  <div style={{
+                    marginTop: 2,
+                    padding: '4px 10px',
+                    borderRadius: 999,
+                    border: '1px solid rgba(56,189,248,0.45)',
+                    background: 'rgba(14,116,144,0.22)',
+                    color: '#67e8f9',
+                    fontSize: 10,
+                    fontWeight: 800,
+                    letterSpacing: '0.12em',
+                    boxShadow: '0 0 16px rgba(34,211,238,0.25)',
+                  }}>
+                    ALL-IN RUNOUT · NEXT CARD IN 3s
+                  </div>
+                )}
               </div>
             )}
 

@@ -136,6 +136,7 @@ export function getServerSignerAddress() {
 const VAULT_ABI = [
   'function cancelGame(uint256 gameId, uint256 nonce, bytes calldata sig) external',
   'function closeGame(uint256 gameId, address winner, uint256 nonce, bytes calldata sig) external',
+  'function getGame(uint256 gameId) view returns (address[] players, uint8 playerCount, uint256 depositAmount, uint256 createdAt, bool finished, address winner)',
 ];
 
 // Lazily initialised so the server can start before the vault address is set
@@ -167,7 +168,8 @@ export async function signAndSubmitCancelGame(gameId) {
   );
   const sig = await signerWallet.signMessage(ethers.getBytes(packed));
   const tx  = await vault.cancelGame(BigInt(gameId), nonce, sig);
-  await tx.wait();
+  const receipt = await tx.wait();
+  return { txHash: tx.hash, receipt };
 }
 
 /**
@@ -188,7 +190,26 @@ export async function signAndSubmitCloseGame(gameId, winnerAddress) {
   );
   const sig = await signerWallet.signMessage(ethers.getBytes(packed));
   const tx  = await vault.closeGame(BigInt(gameId), winnerAddress, nonce, sig);
-  await tx.wait();
+  const receipt = await tx.wait();
+  return { txHash: tx.hash, receipt };
+}
+
+export async function getCloseGameQuote(gameId) {
+  const vault = getVault();
+  if (!vault) throw new Error('ZAX_MIGGY_VAULT_ADDRESS not configured — cannot quote closeGame payout');
+  const g = await vault.getGame(BigInt(gameId));
+
+  const playerCount = Number(g?.playerCount ?? g?.[1] ?? 0);
+  const depositAmount = BigInt(g?.depositAmount ?? g?.[2] ?? 0n);
+  const totalPot = depositAmount * BigInt(playerCount);
+  const winnerPayout = (totalPot * 90n) / 100n;
+
+  return {
+    playerCount,
+    depositAmount: depositAmount.toString(),
+    totalPot: totalPot.toString(),
+    winnerPayout: winnerPayout.toString(),
+  };
 }
 
 // ─── Simple per-IP rate limiter (in-memory) ───────────────────────────────────

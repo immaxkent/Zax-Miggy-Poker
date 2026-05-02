@@ -32,6 +32,7 @@ import {
   getServerSignerAddress,
   signAndSubmitCancelGame,
   signAndSubmitCloseGame,
+  getCloseGameQuote,
 } from './security.js';
 import { PokerTable } from './poker-engine.js';
 
@@ -530,6 +531,17 @@ function scheduleNextHandIfPossible(io, tableId) {
   }, 4_000);
 }
 
+function serializeReceipt(r) {
+  if (!r) return null;
+  return {
+    blockNumber: r.blockNumber != null ? Number(r.blockNumber) : null,
+    gasUsed: r.gasUsed != null ? r.gasUsed.toString() : null,
+    cumulativeGasUsed: r.cumulativeGasUsed != null ? r.cumulativeGasUsed.toString() : null,
+    effectiveGasPrice: r.effectiveGasPrice != null ? r.effectiveGasPrice.toString() : null,
+    status: r.status != null ? Number(r.status) : null,
+  };
+}
+
 function handlePendingHandComplete(io, table, tableId) {
   if (!table?.pendingHandComplete) return false;
   clearRunoutTimer(tableId);
@@ -554,13 +566,65 @@ function handlePendingHandComplete(io, table, tableId) {
       if (winner) {
         console.log(`🏆 USDC game ${tableId} over — winner: ${winner.id}`);
         const gameId = tableId.replace('usdc-', '');
+        const chipsWonInGame = winner.chips - (winner.startChips || 0);
+        const handsPlayed = table.handNumber;
         terminatedTables.add(tableId);
-        io.to(tableId).emit('gameOver', { winner: winner.id, gameId: Number(gameId) });
-        signAndSubmitCloseGame(gameId, winner.id).then(() => {
-          console.log(`✅ closeGame(${gameId}) mined`);
-        }).catch(err => {
-          console.error(`❌ closeGame(${gameId}) failed:`, err.message);
+
+        io.to(tableId).emit('gameOver', {
+          winner: winner.id,
+          gameId: Number(gameId),
+          summary: {
+            handsPlayed,
+            chipsWonInGame,
+          },
         });
+
+        (async () => {
+          let quote = null;
+          try {
+            quote = await getCloseGameQuote(gameId);
+          } catch (err) {
+            console.error(`⚠️ quote closeGame(${gameId}) failed:`, err.message);
+          }
+
+          try {
+            const mined = await signAndSubmitCloseGame(gameId, winner.id);
+            const settlement = {
+              gameId: Number(gameId),
+              winner: winner.id,
+              status: 'mined',
+              txHash: mined.txHash,
+              receipt: serializeReceipt(mined.receipt),
+              summary: {
+                handsPlayed,
+                chipsWonInGame,
+                usdcWon: quote?.winnerPayout ?? null,
+                usdcPot: quote?.totalPot ?? null,
+                playerCount: quote?.playerCount ?? null,
+              },
+            };
+            const winnerSocket = findSocket(io, winner.id);
+            if (winnerSocket) winnerSocket.emit('usdcSettlement', settlement);
+            console.log(`✅ closeGame(${gameId}) mined: ${mined.txHash}`);
+          } catch (err) {
+            console.error(`❌ closeGame(${gameId}) failed:`, err.message);
+            const winnerSocket = findSocket(io, winner.id);
+            if (winnerSocket) winnerSocket.emit('usdcSettlement', {
+              gameId: Number(gameId),
+              winner: winner.id,
+              status: 'failed',
+              error: err.message,
+              summary: {
+                handsPlayed,
+                chipsWonInGame,
+                usdcWon: quote?.winnerPayout ?? null,
+                usdcPot: quote?.totalPot ?? null,
+                playerCount: quote?.playerCount ?? null,
+              },
+            });
+          }
+        })();
+
         [...table.players].forEach(p => {
           const pl = players.get(p.id);
           if (pl) pl.tableId = null;

@@ -208,6 +208,7 @@ export class PokerTable {
       id:         player.id,
       address:    player.address,
       chips:      player.chips,
+      startChips: player.chips,
       cards:      [],
       bet:        0,
       totalBet:   0,
@@ -512,6 +513,12 @@ export class PokerTable {
 
   // ── Public state (hide hole cards of other players) ───────────────────────
   toPublicState(forPlayerId) {
+    const contenders = this.players.filter(p => !p.folded);
+    const allInRunoutReveal =
+      ['flop', 'turn', 'river'].includes(this.stage) &&
+      contenders.length >= 2 &&
+      contenders.every(p => p.allIn);
+
     return {
       tableId:    this.id,
       stage:      this.stage,
@@ -534,7 +541,7 @@ export class PokerTable {
         isAction:  idx === this.actionIdx,
         cardCount: p.cards.length,
         // Only reveal your own cards (+ showdown)
-        cards:     ((p.id || '').toLowerCase() === (forPlayerId || '').toLowerCase() || this.stage === 'showdown') ? p.cards : null,
+        cards:     ((p.id || '').toLowerCase() === (forPlayerId || '').toLowerCase() || this.stage === 'showdown' || allInRunoutReveal) ? p.cards : null,
       })),
     };
   }
