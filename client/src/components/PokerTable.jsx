@@ -190,7 +190,7 @@ export default function PokerTable({ myAddress }) {
   useEffect(() => {
     setWelcomeText('Welcome to the table');
     setWelcomeVisible(true);
-    const t = setTimeout(() => setWelcomeVisible(false), 2600);
+    const t = setTimeout(() => setWelcomeVisible(false), 3000);
     return () => clearTimeout(t);
   }, [gameState?.tableId]);
   useEffect(() => {
@@ -226,7 +226,7 @@ export default function PokerTable({ myAddress }) {
     if (prev > 0 && current > prev) {
       setWelcomeText('Welcome to the table');
       setWelcomeVisible(true);
-      const t = setTimeout(() => setWelcomeVisible(false), 2200);
+      const t = setTimeout(() => setWelcomeVisible(false), 3000);
       prevPlayerCountRef.current = current;
       return () => clearTimeout(t);
     }
@@ -243,6 +243,7 @@ export default function PokerTable({ myAddress }) {
   const myPlayer     = players.find(p => (p.address||'').toLowerCase() === me);
   const actionPlayer = players.find(p => p.isAction);
   const timedPlayerId = (actionTimer?.playerId || '').toLowerCase();
+  const timedPlayer = players.find(p => (p.id || '').toLowerCase() === timedPlayerId);
   const contenders   = players.filter(p => !p.folded);
   const actionable   = contenders.filter(p => !p.allIn);
   const allInRunout  = ['flop', 'turn', 'river'].includes(stage) && contenders.length >= 2 && actionable.length <= 1;
@@ -250,6 +251,7 @@ export default function PokerTable({ myAddress }) {
   const canManage    = stage === 'waiting' && !!gameState.hostId;
   const canTerminate = stage === 'waiting' && !gameState.gameStarted;
   const gameName     = isUsdc && validGameId != null ? gameIdToName(validGameId).toUpperCase() : (cfg?.name?.toUpperCase()||'TABLE');
+  const visibleActionSeconds = actionCountdown > 0 ? actionCountdown : (actionTimer?.seconds || 0);
 
   // ── Action state ─────────────────────────────────────────────────────────────
   const showActions = !!myPlayer?.isAction && !['waiting','showdown'].includes(stage);
@@ -348,8 +350,8 @@ export default function PokerTable({ myAddress }) {
             ...(allInRunout ? [{ v:'·', c:'#1e3050' }, { v:'ALL-IN RUNOUT', c:'#38bdf8' }] : []),
             ...(actionPlayer ? [{ v:'·', c:'#1e3050' }, {
               v: (actionPlayer.address||'').toLowerCase()===me
-                ? `YOUR TURN ⏳ ${actionCountdown || ''}`.trim()
-                : `${(actionPlayer.address||'').slice(0,8)}… ⏳ ${actionCountdown || ''}`.trim(),
+                ? `YOUR TURN ⏳ ${visibleActionSeconds || ''}`.trim()
+                : `${(actionPlayer.address||'').slice(0,8)}… ⏳ ${visibleActionSeconds || ''}`.trim(),
               c: '#fbbf24',
             }] : []),
             ...(stage === 'waiting' && nextHandSeconds > 0 ? [{ v:'·', c:'#1e3050' }, {
@@ -451,6 +453,22 @@ export default function PokerTable({ myAddress }) {
                   ))}
                 </div>
                 {streetLabel && <div style={{ color:`${G}70`, fontSize:10, fontWeight:700, letterSpacing:'0.22em' }}>{streetLabel}</div>}
+                {visibleActionSeconds > 0 && timedPlayer && (
+                  <div style={{
+                    marginTop: 2,
+                    padding: '4px 10px',
+                    borderRadius: 999,
+                    border: '1px solid rgba(251,191,36,0.45)',
+                    background: 'rgba(120,53,15,0.22)',
+                    color: '#fbbf24',
+                    fontSize: 10,
+                    fontWeight: 800,
+                    letterSpacing: '0.1em',
+                    boxShadow: '0 0 16px rgba(251,191,36,0.22)',
+                  }}>
+                    ON THE CLOCK · {visibleActionSeconds}s
+                  </div>
+                )}
                 {allInRunout && (
                   <div style={{
                     marginTop: 2,
@@ -594,8 +612,8 @@ export default function PokerTable({ myAddress }) {
                       {!player.connected && (
                         <div style={{ fontSize:8, color:'#f59e0b', fontWeight:800, letterSpacing:'0.1em' }}>AWAY</div>
                       )}
-                      {(player.id || '').toLowerCase() === timedPlayerId && actionCountdown > 0 && (
-                        <div style={{ fontSize:8, color:'#38bdf8', fontWeight:800, letterSpacing:'0.08em' }}>{actionCountdown}s</div>
+                      {(player.id || '').toLowerCase() === timedPlayerId && visibleActionSeconds > 0 && (
+                        <div style={{ fontSize:9, color:'#38bdf8', fontWeight:900, letterSpacing:'0.08em' }}>{visibleActionSeconds}s</div>
                       )}
                     </div>
                   </div>
@@ -916,21 +934,15 @@ export default function PokerTable({ myAddress }) {
 
       {/* ── Welcome banner ─────────────────────────────────────────────────────── */}
       {welcomeVisible && (
-        <div style={{ position:'fixed', inset:0, display:'flex', alignItems:'flex-start', justifyContent:'center', zIndex:55, pointerEvents:'none', paddingTop:72 }}>
-          <div className="fade-in" style={{
-            borderRadius: 999,
-            padding: '10px 16px',
-            border: `1px solid ${G}55`,
-            background: 'rgba(7,18,30,0.92)',
-            color: G,
-            fontSize: 11,
-            fontWeight: 800,
-            letterSpacing: '0.18em',
-            boxShadow: `0 0 28px ${G}25`,
-            textTransform: 'uppercase',
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-2xl font-bold text-sm"
+          style={{
+            background: 'linear-gradient(135deg, #0c1a3a, #1e3a5f)',
+            border: '1px solid #3b82f6',
+            boxShadow: '0 8px 32px rgba(59,130,246,0.3)',
+            color: 'white',
+            animation: 'slideDown 0.3s ease',
           }}>
-            {welcomeText}
-          </div>
+          {welcomeText}
         </div>
       )}
 
