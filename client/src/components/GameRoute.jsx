@@ -35,7 +35,7 @@ export default function GameRoute() {
   console.log('[GAMEROUTE] render — gameId:', gameId, 'connected:', connected, 'address:', addrLower, 'justCreated:', justCreated);
 
   // ── On-chain membership check ──────────────────────────────────────────────
-  const { data: rawGameData, isLoading, error: readError } = useReadContract({
+  const { data: rawGameData, isLoading, error: readError, isFetchedAfterMount } = useReadContract({
     address: vaultReady ? ZAX_MIGGY_VAULT_ADDRESS : undefined,
     abi: ZAX_MIGGY_VAULT_ABI,
     functionName: 'getGame',
@@ -64,8 +64,8 @@ export default function GameRoute() {
       console.log('[GAMEROUTE] joinEffect — skipping (connected/isAtThisTable/gameId guard)');
       return;
     }
-    if (vaultReady && (isLoading || !isPlayer)) {
-      console.log('[GAMEROUTE] joinEffect — skipping (vault check: isLoading=' + isLoading + ' isPlayer=' + isPlayer + ')');
+    if (vaultReady && (isLoading || (!isPlayer && isFetchedAfterMount))) {
+      console.log('[GAMEROUTE] joinEffect — skipping (vault check: isLoading=' + isLoading + ' isPlayer=' + isPlayer + ' isFetchedAfterMount=' + isFetchedAfterMount + ')');
       return;
     }
     console.log('[GAMEROUTE] joinEffect — calling joinUsdcTable(' + gameId + ')');
@@ -94,7 +94,7 @@ export default function GameRoute() {
   if (vaultReady) {
     if (isLoading) { console.log('[GAMEROUTE] render — isLoading, showing verifying'); return <CenteredMsg>Verifying access…</CenteredMsg>; }
     if (readError) { console.error('[GAMEROUTE] readError:', readError); return <CenteredMsg isError>Could not verify game access — make sure you're on Base network.</CenteredMsg>; }
-    if (gameData && !isPlayer && !justCreated) { console.warn('[GAMEROUTE] not a player — redirecting to lobby. players:', players, 'addrLower:', addrLower); return <Navigate to="/lobby" replace />; }
+    if (gameData && !isPlayer && !justCreated && isFetchedAfterMount) { console.warn('[GAMEROUTE] not a player — redirecting to lobby. players:', players, 'addrLower:', addrLower); return <Navigate to="/lobby" replace />; }
     if (finished) { console.log('[GAMEROUTE] game finished'); return <CenteredMsg>Game #{gameId} has finished.</CenteredMsg>; }
   }
 
