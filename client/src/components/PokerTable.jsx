@@ -101,6 +101,7 @@ export default function PokerTable({ myAddress }) {
   const { gameState, playerAction, leaveTable, startGame, terminateGame, lastHand, chatLog, sendChat } = useGame();
   const [handHistory,  setHandHistory]  = useState([]);
   const [chatInput,    setChatInput]    = useState('');
+  const [sideTab,      setSideTab]      = useState('chat');
   const [handResult,   setHandResult]   = useState(null);
   const [startError,   setStartError]   = useState(null);
   const [raiseAmt,     setRaiseAmt]     = useState('');
@@ -157,12 +158,23 @@ export default function PokerTable({ myAddress }) {
     if (!lastHand) return;
     setHandResult(lastHand);
     setTimeout(() => setHandResult(null), 5500);
-    const winner = Object.entries(lastHand.results||{}).find(([,v]) => v.won > 0);
-    if (winner) {
-      const [addr, { won, hand }] = winner;
-      const isMe = addr.toLowerCase() === (myAddress||'').toLowerCase();
-      setHandHistory(h => [{ hand: lastHand.handNumber||h.length+1, who: isMe?'you':`${addr.slice(0,6)}…`, amount:won, win:true, handName:hand?.name }, ...h.slice(0,5)]);
-      // dealer system message is broadcast via server handComplete — no local push needed
+    const payouts = Object.entries(lastHand.results || {})
+      .filter(([, v]) => (v?.won || 0) > 0)
+      .sort((a, b) => (b[1]?.won || 0) - (a[1]?.won || 0))
+      .map(([addr, { won, hand }]) => {
+        const isMe = addr.toLowerCase() === (myAddress || '').toLowerCase();
+        return {
+          addr,
+          who: isMe ? 'YOU' : `${addr.slice(0, 6)}…${addr.slice(-3)}`,
+          won,
+          handName: hand?.name || null,
+        };
+      });
+    if (payouts.length > 0) {
+      setHandHistory(h => [
+        { hand: lastHand.handNumber || h.length + 1, payouts },
+        ...h.slice(0, 11),
+      ]);
     }
   }, [lastHand]);
 
@@ -273,6 +285,7 @@ export default function PokerTable({ myAddress }) {
             { v: isUsdc && validGameId!=null ? `#${validGameId}` : 'NLH', c:'#334155', mono:true },
             { v: '·',                                                      c:'#1e3050' },
             { v: `STAKES ≡ ${cfg?.smallBlind||0}/${cfg?.bigBlind||0}`,    c:'#475569' },
+            ...(myPlayer ? [{ v:'·', c:'#1e3050' }, { v:`CHIPS ≡ ${myPlayer.chips}`, c:'#fbbf24', mono:true }] : []),
             ...(isUsdc && potUsdc != null ? [{ v:'·', c:'#1e3050' }, { v:`≡ ${Number(potUsdc).toFixed(2)} USDC`, c:G }] : []),
             ...(actionPlayer ? [{ v:'·', c:'#1e3050' }, {
               v: (actionPlayer.address||'').toLowerCase()===me ? 'YOUR TURN ⏳' : `${(actionPlayer.address||'').slice(0,8)}… ⏳`,
@@ -675,68 +688,118 @@ export default function PokerTable({ myAddress }) {
           borderLeft: '1px solid rgba(255,255,255,0.05)',
           background: '#0a0e16',
         }}>
-          {/* Hand history */}
-          <div style={{ padding:'14px 16px 10px', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-              <span style={{ color:'#334155', fontSize:10, fontWeight:700, letterSpacing:'0.18em' }}>// HAND HISTORY</span>
-              <span style={{ color:'#1e3050', fontSize:10 }}>last 6</span>
+          <div style={{ padding:'10px 12px 8px', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+              <button
+                onClick={() => setSideTab('chat')}
+                style={{
+                  height:30,
+                  borderRadius:7,
+                  border: `1px solid ${sideTab === 'chat' ? `${G}55` : 'rgba(255,255,255,0.08)'}`,
+                  background: sideTab === 'chat' ? `${G}14` : 'rgba(255,255,255,0.02)',
+                  color: sideTab === 'chat' ? G : '#64748b',
+                  fontSize:10,
+                  fontWeight:800,
+                  letterSpacing:'0.1em',
+                  cursor:'pointer',
+                }}
+              >
+                TABLE CHAT
+              </button>
+              <button
+                onClick={() => setSideTab('history')}
+                style={{
+                  height:30,
+                  borderRadius:7,
+                  border: `1px solid ${sideTab === 'history' ? `${P}55` : 'rgba(255,255,255,0.08)'}`,
+                  background: sideTab === 'history' ? `${P}14` : 'rgba(255,255,255,0.02)',
+                  color: sideTab === 'history' ? P : '#64748b',
+                  fontSize:10,
+                  fontWeight:800,
+                  letterSpacing:'0.1em',
+                  cursor:'pointer',
+                }}
+              >
+                HAND HISTORY
+              </button>
             </div>
-            {handHistory.length === 0
-              ? <div style={{ color:'#1e3050', fontSize:11, padding:'2px 0' }}>No hands played yet.</div>
-              : handHistory.map((hh, i) => (
-                <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr auto auto', gap:8, alignItems:'center', padding:'5px 0', borderBottom:'1px solid rgba(255,255,255,0.03)' }}>
-                  <span style={{ color:'#334155', fontSize:10, fontFamily:'Space Mono,monospace' }}>#{hh.hand}</span>
-                  <span style={{ color:'#475569', fontSize:10 }}>{hh.who}</span>
-                  <span style={{ color: hh.win ? G : P, fontSize:10, fontFamily:'Space Mono,monospace', fontWeight:700 }}>
-                    {hh.win?'+':'-'}≡{Math.abs(hh.amount)}
-                  </span>
-                </div>
-              ))
-            }
           </div>
 
-          {/* Chat */}
+          {/* Chat / hand history tabs */}
           <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-            <div style={{ padding:'10px 16px 6px', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
-              <span style={{ color:'#334155', fontSize:10, fontWeight:700, letterSpacing:'0.18em' }}>// TABLE CHAT</span>
-            </div>
-            <div ref={chatRef} style={{ flex:1, overflowY:'auto', padding:'8px 14px', display:'flex', flexDirection:'column', gap:5 }}>
-              {chatLog.map((m,i) => (
-                <div key={i} style={{ fontSize:11, lineHeight:1.5 }}>
-                  {m.system
-                    ? <span style={{ color:'#1e3050', fontFamily:'Space Mono,monospace', fontSize:10 }}>{m.text}</span>
-                    : <>
-                        <span style={{ color: (m.from||'').toLowerCase()===me ? G : '#a855f7', fontWeight:700, fontSize:10, marginRight:5 }}>
-                          {(m.from||'').toLowerCase()===me ? 'YOU' : `${(m.from||'').slice(0,8)}…`}:
-                        </span>
-                        <span style={{ color:'#94a3b8' }}>{m.text}</span>
-                      </>
-                  }
+            {sideTab === 'chat' ? (
+              <>
+                <div style={{ padding:'10px 16px 6px', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
+                  <span style={{ color:'#334155', fontSize:10, fontWeight:700, letterSpacing:'0.18em' }}>// TABLE CHAT</span>
                 </div>
-              ))}
-            </div>
-            <div style={{ padding:'8px 12px', borderTop:'1px solid rgba(255,255,255,0.04)', display:'flex', gap:6 }}>
-              <input
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && chatInput.trim()) {
-                    sendChat(chatInput.trim());
-                    setChatInput('');
-                  }
-                }}
-                placeholder="Type message…"
-                style={{ flex:1, background:'#060d14', border:'1px solid rgba(255,255,255,0.07)', borderRadius:6, padding:'7px 10px', color:'#e2e8f0', fontSize:12, outline:'none' }}
-              />
-              <button
-                onClick={() => {
-                  if (!chatInput.trim()) return;
-                  sendChat(chatInput.trim());
-                  setChatInput('');
-                }}
-                style={{ width:32, height:32, borderRadius:6, background:`${G}18`, border:`1px solid ${G}30`, color:G, cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center' }}
-              >↑</button>
-            </div>
+                <div ref={chatRef} style={{ flex:1, overflowY:'auto', padding:'8px 14px', display:'flex', flexDirection:'column', gap:5 }}>
+                  {chatLog.map((m,i) => (
+                    <div key={i} style={{ fontSize:11, lineHeight:1.5 }}>
+                      {m.system
+                        ? <span style={{ color:'#1e3050', fontFamily:'Space Mono,monospace', fontSize:10 }}>{m.text}</span>
+                        : <>
+                            <span style={{ color: (m.from||'').toLowerCase()===me ? G : '#a855f7', fontWeight:700, fontSize:10, marginRight:5 }}>
+                              {(m.from||'').toLowerCase()===me ? 'YOU' : `${(m.from||'').slice(0,8)}…`}:
+                            </span>
+                            <span style={{ color:'#94a3b8' }}>{m.text}</span>
+                          </>
+                      }
+                    </div>
+                  ))}
+                </div>
+                <div style={{ padding:'8px 12px', borderTop:'1px solid rgba(255,255,255,0.04)', display:'flex', gap:6 }}>
+                  <input
+                    value={chatInput}
+                    onChange={e => setChatInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && chatInput.trim()) {
+                        sendChat(chatInput.trim());
+                        setChatInput('');
+                      }
+                    }}
+                    placeholder="Type message…"
+                    style={{ flex:1, background:'#060d14', border:'1px solid rgba(255,255,255,0.07)', borderRadius:6, padding:'7px 10px', color:'#e2e8f0', fontSize:12, outline:'none' }}
+                  />
+                  <button
+                    onClick={() => {
+                      if (!chatInput.trim()) return;
+                      sendChat(chatInput.trim());
+                      setChatInput('');
+                    }}
+                    style={{ width:32, height:32, borderRadius:6, background:`${G}18`, border:`1px solid ${G}30`, color:G, cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center' }}
+                  >↑</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ padding:'10px 16px 6px', borderBottom:'1px solid rgba(255,255,255,0.04)', display:'flex', justifyContent:'space-between' }}>
+                  <span style={{ color:'#334155', fontSize:10, fontWeight:700, letterSpacing:'0.18em' }}>// HAND HISTORY</span>
+                  <span style={{ color:'#1e3050', fontSize:10 }}>last 12</span>
+                </div>
+                <div style={{ flex:1, overflowY:'auto', padding:'8px 14px', display:'flex', flexDirection:'column', gap:7 }}>
+                  {handHistory.length === 0 ? (
+                    <div style={{ color:'#1e3050', fontSize:11, padding:'2px 0' }}>No hands played yet.</div>
+                  ) : (
+                    handHistory.map((hh, i) => (
+                      <div key={i} style={{ padding:'8px 8px 7px', border:'1px solid rgba(255,255,255,0.05)', borderRadius:8, background:'rgba(3,8,16,0.6)' }}>
+                        <div style={{ color:'#64748b', fontSize:10, fontFamily:'Space Mono,monospace', marginBottom:5 }}>
+                          HAND #{hh.hand}
+                        </div>
+                        {hh.payouts.map((p, idx) => (
+                          <div key={`${p.addr}-${idx}`} style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:8, alignItems:'center', marginBottom: idx === hh.payouts.length - 1 ? 0 : 3 }}>
+                            <div style={{ minWidth:0 }}>
+                              <span style={{ color:'#94a3b8', fontSize:10, fontWeight:700 }}>{p.who}</span>
+                              {p.handName && <span style={{ color:'#7c3aed', fontSize:9, marginLeft:6 }}>{p.handName}</span>}
+                            </div>
+                            <span style={{ color:G, fontSize:11, fontFamily:'Space Mono,monospace', fontWeight:700 }}>+≡{p.won}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
 

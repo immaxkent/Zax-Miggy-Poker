@@ -43,6 +43,8 @@ const players = new Map();  // address → { id, chips, tableId, nonce }
 const tables  = new Map();  // tableId → PokerTable
 const usdcStacks = new Map();  // tableId → Map<playerId, chips> (stack when they left, for rejoin)
 const terminatedTables = new Set();  // tableIds that have been terminated (blocks rejoin)
+const runoutTimers = new Map(); // tableId -> timeout for all-in runout pacing
+const RUNOUT_DELAY_MS = 3_000;
 
 // ─── Pre-create tables for each stake level ───────────────────────────────────
 for (const [key, stakeConfig] of Object.entries(config.tables.stakes)) {
@@ -333,64 +335,12 @@ io.on('connection', (socket) => {
 
       emitGameStateToAllAtTable(io, table, `[ACTION] actionIdx=${table.actionIdx}`);
 
-      // Hand finished: applyAction returns toPublicState (no `results`). Engine sets pendingHandComplete.
-      if (table.pendingHandComplete) {
-        const currentTableId = player.tableId;
-        const hc = table.pendingHandComplete;
-        table.pendingHandComplete = null;
-        io.to(currentTableId).emit('handComplete', {
-          handNumber: hc.handNumber,
-          results:    hc.results,
-          community:  hc.community,
-          holeCards:  hc.holeCards,
-          verify:     hc.verify,
-        });
-        issueWinnerVouchers(io, hc.results, currentTableId);
-
-        // ── Auto-finish USDC game when a player is busted (0 chips) ──────────
-        if (currentTableId.startsWith('usdc-')) {
-          const busted = table.players.filter(p => p.chips === 0);
-          if (busted.length > 0) {
-            const winner = table.players.find(p => p.chips > 0);
-            if (winner) {
-              console.log(`🏆 USDC game ${currentTableId} over — winner: ${winner.id}`);
-              const gameId = currentTableId.replace('usdc-', '');
-              terminatedTables.add(currentTableId);
-              io.to(currentTableId).emit('gameOver', { winner: winner.id, gameId: Number(gameId) });
-              // Settle on-chain asynchronously
-              signAndSubmitCloseGame(gameId, winner.id).then(() => {
-                console.log(`✅ closeGame(${gameId}) mined`);
-              }).catch(err => {
-                console.error(`❌ closeGame(${gameId}) failed:`, err.message);
-              });
-              // Clean up table (stand everyone up)
-              [...table.players].forEach(p => {
-                const pl = players.get(p.id);
-                if (pl) pl.tableId = null;
-                const s = findSocket(io, p.id);
-                if (s) {
-                  s.leave(currentTableId);
-                  s.emit('chipsUpdated', { chips: pl?.chips ?? 0 });
-                }
-              });
-              tables.delete(currentTableId);
-            }
-          }
-        }
-
-        // ── Auto-rollover: start next hand after 4 seconds if game continues ──
-        // Only if the table still exists (wasn't just torn down by game-over)
-        setTimeout(() => {
-          const stillExists = tables.get(currentTableId);
-          if (!stillExists) return;
-          if (stillExists.stage !== 'waiting') return;          // hand already started somehow
-          if (!stillExists.canStart()) return;                  // not enough players
-          const started = tryStartHand(io, stillExists);
-          if (started) {
-            console.log(`♻️  Auto-rolled to next hand on ${currentTableId}`);
-          }
-        }, 4_000);
+      const currentTableId = player.tableId;
+      if (handlePendingHandComplete(io, table, currentTableId)) {
+        ack?.({ ok: true });
+        return;
       }
+      scheduleAllInRunout(io, table);
 
       ack?.({ ok: true });
     } catch (err) {
@@ -421,6 +371,7 @@ io.on('connection', (socket) => {
       if (!started) {
         return ack?.({ error: 'Could not start hand — need enough players and table must be in lobby (waiting).' });
       }
+      scheduleAllInRunout(io, table);
       ack?.({ ok: true, state: enrichState(table, table.toPublicState(playerId), playerId) });
     } catch (err) {
       ack?.({ error: err.message });
@@ -466,6 +417,7 @@ io.on('connection', (socket) => {
           }
         }
       });
+      clearRunoutTimer(tableId);
       tables.delete(tableId);
       if (isUsdc && stackMap) usdcStacks.set(tableId, stackMap);
       ack?.({ ok: true });
@@ -546,6 +498,110 @@ function findSocket(io, playerId) {
     if ((s.walletAddress || '').toLowerCase() === id) return s;
   }
   return null;
+}
+
+function clearRunoutTimer(tableId) {
+  const t = runoutTimers.get(tableId);
+  if (t) {
+    clearTimeout(t);
+    runoutTimers.delete(tableId);
+  }
+}
+
+function shouldAutoRunout(table) {
+  if (!table || !['flop', 'turn', 'river'].includes(table.stage)) return false;
+  const contenders = table.players.filter(p => !p.folded);
+  if (contenders.length < 2) return false;
+  const actionable = contenders.filter(p => !p.allIn);
+  return actionable.length === 0;
+}
+
+function scheduleNextHandIfPossible(io, tableId) {
+  setTimeout(() => {
+    const stillExists = tables.get(tableId);
+    if (!stillExists) return;
+    if (stillExists.stage !== 'waiting') return; // hand already in progress
+    if (!stillExists.canStart()) return;         // not enough players
+    const started = tryStartHand(io, stillExists);
+    if (started) {
+      scheduleAllInRunout(io, stillExists);
+      console.log(`♻️  Auto-rolled to next hand on ${tableId}`);
+    }
+  }, 4_000);
+}
+
+function handlePendingHandComplete(io, table, tableId) {
+  if (!table?.pendingHandComplete) return false;
+  clearRunoutTimer(tableId);
+
+  const hc = table.pendingHandComplete;
+  table.pendingHandComplete = null;
+
+  io.to(tableId).emit('handComplete', {
+    handNumber: hc.handNumber,
+    results:    hc.results,
+    community:  hc.community,
+    holeCards:  hc.holeCards,
+    verify:     hc.verify,
+  });
+  issueWinnerVouchers(io, hc.results, tableId);
+
+  // Auto-finish USDC game when a player is busted (0 chips)
+  if (tableId.startsWith('usdc-')) {
+    const busted = table.players.filter(p => p.chips === 0);
+    if (busted.length > 0) {
+      const winner = table.players.find(p => p.chips > 0);
+      if (winner) {
+        console.log(`🏆 USDC game ${tableId} over — winner: ${winner.id}`);
+        const gameId = tableId.replace('usdc-', '');
+        terminatedTables.add(tableId);
+        io.to(tableId).emit('gameOver', { winner: winner.id, gameId: Number(gameId) });
+        signAndSubmitCloseGame(gameId, winner.id).then(() => {
+          console.log(`✅ closeGame(${gameId}) mined`);
+        }).catch(err => {
+          console.error(`❌ closeGame(${gameId}) failed:`, err.message);
+        });
+        [...table.players].forEach(p => {
+          const pl = players.get(p.id);
+          if (pl) pl.tableId = null;
+          const s = findSocket(io, p.id);
+          if (s) {
+            s.leave(tableId);
+            s.emit('chipsUpdated', { chips: pl?.chips ?? 0 });
+          }
+        });
+        clearRunoutTimer(tableId);
+        tables.delete(tableId);
+        return true;
+      }
+    }
+  }
+
+  scheduleNextHandIfPossible(io, tableId);
+  return true;
+}
+
+function scheduleAllInRunout(io, table) {
+  const tableId = table?.id;
+  if (!tableId || runoutTimers.has(tableId) || !shouldAutoRunout(table)) return;
+
+  const tick = () => {
+    runoutTimers.delete(tableId);
+    const latest = tables.get(tableId);
+    if (!latest || !shouldAutoRunout(latest)) return;
+
+    latest._nextStage();
+    emitGameStateToAllAtTable(io, latest, `[RUNOUT] stage=${latest.stage}`);
+
+    if (handlePendingHandComplete(io, latest, tableId)) return;
+    if (!shouldAutoRunout(latest)) return;
+
+    const next = setTimeout(tick, RUNOUT_DELAY_MS);
+    runoutTimers.set(tableId, next);
+  };
+
+  const timer = setTimeout(tick, RUNOUT_DELAY_MS);
+  runoutTimers.set(tableId, timer);
 }
 
 function leaveTable(playerId, socket, ack) {

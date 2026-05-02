@@ -276,7 +276,19 @@ export class PokerTable {
 
     // Action starts left of BB for 3+ players; heads-up SB (dealer) acts first preflop
     this.actionIdx = isHeadsUp ? sbIdx : (bbIdx + 1) % this.players.length;
-    this.firstToActIdx = this.actionIdx; // so we only end preflop when action returns to UTG and all have matched
+    const activeCount = this.players.filter(p => !p.folded && !p.allIn).length;
+    if (activeCount === 0) {
+      // Everyone is all-in from blinds; reveal flop and let server pace the runout.
+      this._nextStage();
+    } else {
+      // If selected seat is all-in, advance to the next seat that can act.
+      let first = this.actionIdx;
+      while (this.players[first].folded || this.players[first].allIn) {
+        first = (first + 1) % this.players.length;
+      }
+      this.actionIdx = first;
+      this.firstToActIdx = first;
+    }
 
     return {
       handNumber:  this.handNumber,
@@ -419,10 +431,12 @@ export class PokerTable {
     // First to act post-flop = first active left of dealer
     const sbIdx = (this.dealerIdx + 1) % this.players.length;
 
-    // Fix #1: if all remaining players are all-in, run out the board automatically
+    // If no players can act (everyone remaining is all-in), leave actionIdx unset.
+    // The server will advance streets with paced delays for UI readability.
     const activeCount = this.players.filter(p => !p.folded && !p.allIn).length;
     if (activeCount === 0) {
-      this._nextStage();
+      this.actionIdx = -1;
+      this.firstToActIdx = -1;
       return;
     }
 
