@@ -622,6 +622,19 @@ describe('All-In Scenarios', () => {
     assert.equal(Array.isArray(p0View.players.find(p => p.id === 'p1').cards), true);
     assert.equal(Array.isArray(p1View.players.find(p => p.id === 'p0').cards), true);
   });
+
+  test('runout reveal works when one player is all-in and one still has chips', () => {
+    const table = makeTable(2, 1000);
+    table.startHand();
+    // Dealer shoves but BB still has chips after calling.
+    table.applyAction(table.players[table.actionIdx].id, 'raise', 995);
+    table.applyAction(table.players[table.actionIdx].id, 'call');
+    assert.equal(table.stage, 'flop');
+    const p0View = table.toPublicState('p0');
+    const p1View = table.toPublicState('p1');
+    assert.equal(Array.isArray(p0View.players.find(p => p.id === 'p1').cards), true);
+    assert.equal(Array.isArray(p1View.players.find(p => p.id === 'p0').cards), true);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

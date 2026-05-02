@@ -581,7 +581,7 @@ function shouldAutoRunout(table) {
   const contenders = table.players.filter(p => !p.folded);
   if (contenders.length < 2) return false;
   const actionable = contenders.filter(p => !p.allIn);
-  return actionable.length === 0;
+  return actionable.length <= 1;
 }
 
 function scheduleNextHandIfPossible(io, tableId) {
@@ -639,9 +639,9 @@ function handlePendingHandComplete(io, table, tableId) {
 
   // Auto-finish USDC game when a player is busted (0 chips)
   if (tableId.startsWith('usdc-')) {
-    const busted = table.players.filter(p => p.chips === 0);
-    if (busted.length > 0) {
-      const winner = table.players.find(p => p.chips > 0);
+    const alive = table.players.filter(p => p.chips > 0);
+    if (alive.length === 1) {
+      const winner = alive[0];
       if (winner) {
         console.log(`🏆 USDC game ${tableId} over — winner: ${winner.id}`);
         const gameId = tableId.replace('usdc-', '');
@@ -666,41 +666,49 @@ function handlePendingHandComplete(io, table, tableId) {
             console.error(`⚠️ quote closeGame(${gameId}) failed:`, err.message);
           }
 
-          try {
-            const mined = await signAndSubmitCloseGame(gameId, winner.id);
-            const settlement = {
-              gameId: Number(gameId),
-              winner: winner.id,
-              status: 'mined',
-              txHash: mined.txHash,
-              receipt: serializeReceipt(mined.receipt),
-              summary: {
-                handsPlayed,
-                chipsWonInGame,
-                usdcWon: quote?.winnerPayout ?? null,
-                usdcPot: quote?.totalPot ?? null,
-                playerCount: quote?.playerCount ?? null,
-              },
-            };
-            const winnerSocket = findSocket(io, winner.id);
-            if (winnerSocket) winnerSocket.emit('usdcSettlement', settlement);
-            console.log(`✅ closeGame(${gameId}) mined: ${mined.txHash}`);
-          } catch (err) {
-            console.error(`❌ closeGame(${gameId}) failed:`, err.message);
-            const winnerSocket = findSocket(io, winner.id);
-            if (winnerSocket) winnerSocket.emit('usdcSettlement', {
-              gameId: Number(gameId),
-              winner: winner.id,
-              status: 'failed',
-              error: err.message,
-              summary: {
-                handsPlayed,
-                chipsWonInGame,
-                usdcWon: quote?.winnerPayout ?? null,
-                usdcPot: quote?.totalPot ?? null,
-                playerCount: quote?.playerCount ?? null,
-              },
-            });
+          const maxAttempts = 3;
+          for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+              const mined = await signAndSubmitCloseGame(gameId, winner.id);
+              const settlement = {
+                gameId: Number(gameId),
+                winner: winner.id,
+                status: 'mined',
+                txHash: mined.txHash,
+                receipt: serializeReceipt(mined.receipt),
+                summary: {
+                  handsPlayed,
+                  chipsWonInGame,
+                  usdcWon: quote?.winnerPayout ?? null,
+                  usdcPot: quote?.totalPot ?? null,
+                  playerCount: quote?.playerCount ?? null,
+                },
+              };
+              const winnerSocket = findSocket(io, winner.id);
+              if (winnerSocket) winnerSocket.emit('usdcSettlement', settlement);
+              console.log(`✅ closeGame(${gameId}) mined: ${mined.txHash}`);
+              return;
+            } catch (err) {
+              console.error(`❌ closeGame(${gameId}) attempt ${attempt}/${maxAttempts} failed:`, err.message);
+              if (attempt < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 2_000));
+                continue;
+              }
+              const winnerSocket = findSocket(io, winner.id);
+              if (winnerSocket) winnerSocket.emit('usdcSettlement', {
+                gameId: Number(gameId),
+                winner: winner.id,
+                status: 'failed',
+                error: err.message,
+                summary: {
+                  handsPlayed,
+                  chipsWonInGame,
+                  usdcWon: quote?.winnerPayout ?? null,
+                  usdcPot: quote?.totalPot ?? null,
+                  playerCount: quote?.playerCount ?? null,
+                },
+              });
+            }
           }
         })();
 

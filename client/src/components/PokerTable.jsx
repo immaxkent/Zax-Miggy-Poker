@@ -104,6 +104,7 @@ export default function PokerTable({ myAddress }) {
   const [sideTab,      setSideTab]      = useState('history');
   const [handResult,   setHandResult]   = useState(null);
   const [welcomeVisible, setWelcomeVisible] = useState(true);
+  const [welcomeText, setWelcomeText] = useState('Welcome to the table');
   const [actionCountdown, setActionCountdown] = useState(0);
   const [nextHandSeconds, setNextHandSeconds] = useState(0);
   const [startError,   setStartError]   = useState(null);
@@ -113,6 +114,7 @@ export default function PokerTable({ myAddress }) {
 
   const tableRef = useRef(null);
   const chatRef  = useRef(null);
+  const prevPlayerCountRef = useRef(0);
 
   // ── Measure table container at actual pixel size (no CSS scale) ──────────────
   useEffect(() => {
@@ -186,6 +188,7 @@ export default function PokerTable({ myAddress }) {
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [chatLog]);
   useEffect(() => { setRaiseAmt(''); }, [gameState?.currentBet]);
   useEffect(() => {
+    setWelcomeText('Welcome to the table');
     setWelcomeVisible(true);
     const t = setTimeout(() => setWelcomeVisible(false), 2600);
     return () => clearTimeout(t);
@@ -216,6 +219,22 @@ export default function PokerTable({ myAddress }) {
     const id = setInterval(tick, 250);
     return () => clearInterval(id);
   }, [nextHandCountdown?.deadline, nextHandCountdown?.seconds]);
+  useEffect(() => {
+    const prev = prevPlayerCountRef.current;
+    const current = gameState?.players?.length || 0;
+    const stageName = gameState?.config?.name?.toUpperCase() || (isUsdc && validGameId != null ? gameIdToName(validGameId).toUpperCase() : 'TABLE');
+    if (prev > 0 && current > prev) {
+      setWelcomeText('Welcome to the table');
+      setWelcomeVisible(true);
+      const t = setTimeout(() => setWelcomeVisible(false), 2200);
+      prevPlayerCountRef.current = current;
+      return () => clearTimeout(t);
+    }
+    prevPlayerCountRef.current = current;
+    if (current > 0 && welcomeVisible) {
+      setWelcomeText(`Welcome to the table ${stageName}`);
+    }
+  }, [gameState?.players?.length, gameState?.config?.name, isUsdc, validGameId, welcomeVisible]);
 
   if (!gameState) return null;
 
@@ -226,7 +245,7 @@ export default function PokerTable({ myAddress }) {
   const timedPlayerId = (actionTimer?.playerId || '').toLowerCase();
   const contenders   = players.filter(p => !p.folded);
   const actionable   = contenders.filter(p => !p.allIn);
-  const allInRunout  = ['flop', 'turn', 'river'].includes(stage) && contenders.length >= 2 && actionable.length === 0;
+  const allInRunout  = ['flop', 'turn', 'river'].includes(stage) && contenders.length >= 2 && actionable.length <= 1;
   const isHost       = !!me && (gameState.hostId||'').toLowerCase() === me;
   const canManage    = stage === 'waiting' && !!gameState.hostId;
   const canTerminate = stage === 'waiting' && !gameState.gameStarted;
@@ -910,7 +929,7 @@ export default function PokerTable({ myAddress }) {
             boxShadow: `0 0 28px ${G}25`,
             textTransform: 'uppercase',
           }}>
-                    {`Welcome to the table ${gameName}`}
+            {welcomeText}
           </div>
         </div>
       )}

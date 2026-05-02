@@ -528,10 +528,11 @@ export class PokerTable {
   // ── Public state (hide hole cards of other players) ───────────────────────
   toPublicState(forPlayerId) {
     const contenders = this.players.filter(p => !p.folded);
+    const actionable = contenders.filter(p => !p.allIn);
     const allInRunoutReveal =
       ['flop', 'turn', 'river'].includes(this.stage) &&
       contenders.length >= 2 &&
-      contenders.every(p => p.allIn);
+      actionable.length <= 1;
 
     return {
       tableId:    this.id,
