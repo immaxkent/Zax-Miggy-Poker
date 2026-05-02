@@ -25,7 +25,7 @@ export default function GameRoute() {
   const location = useLocation();
   const justCreated = location.state?.justCreated === true;
   const { address } = useAccount();
-  const { connected, joinUsdcTable, gameState } = useGame();
+  const { connected, joinUsdcTable, leaveTable, gameState } = useGame();
   const [joinError, setJoinError] = useState(null);
   const [everHadState, setEverHadState] = useState(false);
 
@@ -78,6 +78,14 @@ export default function GameRoute() {
       }
     });
   }, [connected, isAtThisTable, isLoading, isPlayer, vaultReady, gameId, joinUsdcTable]);
+
+  // ── Clean up orphaned server state: at table socket but not on-chain ──────
+  useEffect(() => {
+    if (vaultReady && isFetchedAfterMount && !isPlayer && isAtThisTable) {
+      console.warn('[GAMEROUTE] orphan cleanup — at socket table but not on-chain, calling leaveTable');
+      leaveTable();
+    }
+  }, [vaultReady, isFetchedAfterMount, isPlayer, isAtThisTable, leaveTable]);
 
   // ── Navigate to /lobby when table ends (terminate, leave, game over) ───────
   useEffect(() => {

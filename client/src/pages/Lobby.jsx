@@ -365,11 +365,11 @@ function CreateUsdcGameModal({ onClose, onCreated }) {
   );
 }
 
-function JoinUsdcGameModal({ onClose, onJoined, openGames = [] }) {
+function JoinUsdcGameModal({ onClose, onJoined, openGames = [], initialGameId = null }) {
   const { address, chainId } = useAccount();
   const { connected } = useGame();
   const navigate = useNavigate();
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(initialGameId != null ? String(initialGameId) : '');
   const [step, setStep] = useState('input');
   const [error, setError] = useState(null);
   const { writeContractAsync } = useWriteContract();
@@ -544,6 +544,7 @@ export default function Lobby({ token, address }) {
   const [showDeposit, setShowDeposit] = useState(false);
   const [showCreateUsdc, setShowCreateUsdc] = useState(false);
   const [showJoinUsdc, setShowJoinUsdc] = useState(false);
+  const [joinUsdcInitialId, setJoinUsdcInitialId] = useState(null);
   const [joinError, setJoinError] = useState(null);
   const [joining, setJoining] = useState(null);
   const [activeFilter, setActiveFilter] = useState('ALL');
@@ -760,7 +761,7 @@ export default function Lobby({ token, address }) {
                 }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor = `${G}40`; e.currentTarget.style.transform = 'translateY(-2px)'; }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; e.currentTarget.style.transform = 'none'; }}
-                  onClick={() => navigate(`/game/${game.id}`)}>
+                  onClick={() => { setJoinUsdcInitialId(game.id); setShowJoinUsdc(true); }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                     <div style={{
                       fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', color: G,
@@ -784,7 +785,7 @@ export default function Lobby({ token, address }) {
                     </div>
                   </div>
                   <button
-                    onClick={e => { e.stopPropagation(); navigate(`/game/${game.id}`); }}
+                    onClick={e => { e.stopPropagation(); console.log('[LOBBY] JOIN TABLE card button — gameId:', game.id); setJoinUsdcInitialId(game.id); setShowJoinUsdc(true); }}
                     style={{
                       width: '100%', marginTop: 14, padding: '9px', borderRadius: 7,
                       background: `${G}18`, border: `1px solid ${G}40`, color: G,
@@ -852,7 +853,7 @@ export default function Lobby({ token, address }) {
 
       {showDeposit && <DepositModal onClose={() => setShowDeposit(false)} onDeposited={net => { notifyDeposit(net); setShowDeposit(false); }} />}
       {showCreateUsdc && <CreateUsdcGameModal onClose={() => setShowCreateUsdc(false)} onCreated={id => { navigate(`/game/${id}`, { state: { justCreated: true } }); setShowCreateUsdc(false); }} />}
-      {showJoinUsdc && <JoinUsdcGameModal onClose={() => setShowJoinUsdc(false)} openGames={openGames} />}
+      {showJoinUsdc && <JoinUsdcGameModal onClose={() => { setShowJoinUsdc(false); setJoinUsdcInitialId(null); }} openGames={openGames} initialGameId={joinUsdcInitialId} />}
     </div>
   );
 }
