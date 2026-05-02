@@ -198,12 +198,12 @@ function DepositModal({ onClose, onDeposited }) {
   const { data: allowance } = useReadContract({
     address: deployed ? TOKEN_ADDRESS : undefined,
     abi: ERC20_ABI, functionName: 'allowance',
-    args: [address, VAULT_ADDRESS], watch: true,
+    args: [address, VAULT_ADDRESS],
   });
   const { data: tokenBalance } = useReadContract({
     address: deployed ? TOKEN_ADDRESS : undefined,
     abi: ERC20_ABI, functionName: 'balanceOf',
-    args: [address], watch: true,
+    args: [address],
   });
 
   async function handleDeposit() {
@@ -291,11 +291,11 @@ function CreateUsdcGameModal({ onClose, onCreated }) {
   const { data: usdcAllowance } = useReadContract({
     address: usdcVaultReady() ? USDC_ADDRESS : undefined,
     abi: ERC20_ABI, functionName: 'allowance',
-    args: [address, ZAX_MIGGY_VAULT_ADDRESS], watch: true,
+    args: [address, ZAX_MIGGY_VAULT_ADDRESS],
   });
   const { data: usdcBalance } = useReadContract({
     address: usdcVaultReady() ? USDC_ADDRESS : undefined,
-    abi: ERC20_ABI, functionName: 'balanceOf', args: [address], watch: true,
+    abi: ERC20_ABI, functionName: 'balanceOf', args: [address],
   });
   const { data: nextGameIdData, refetch: refetchNextGameId } = useReadContract({
     address: usdcVaultReady() ? ZAX_MIGGY_VAULT_ADDRESS : undefined,
@@ -419,7 +419,7 @@ function JoinUsdcGameModal({ onClose, onJoined, openGames = [] }) {
   const { data: usdcAllowance } = useReadContract({
     address: usdcVaultReady() ? USDC_ADDRESS : undefined,
     abi: ERC20_ABI, functionName: 'allowance',
-    args: [address, ZAX_MIGGY_VAULT_ADDRESS], watch: true,
+    args: [address, ZAX_MIGGY_VAULT_ADDRESS],
   });
 
   async function handleJoin() {
@@ -540,7 +540,7 @@ export default function Lobby({ token, address }) {
     address: usdcVaultReady() ? ZAX_MIGGY_VAULT_ADDRESS : undefined,
     abi: ZAX_MIGGY_VAULT_ABI,
     functionName: 'nextGameId',
-    watch: true,
+    
   });
   const nextGameId = nextGameIdData ? Number(nextGameIdData) : 0;
   const scanIds = useMemo(() => Array.from({ length: Math.min(nextGameId, 30) }, (_, i) => i), [nextGameId]);
@@ -552,7 +552,7 @@ export default function Lobby({ token, address }) {
       functionName: 'getGame',
       args: [BigInt(id)],
     })) : [],
-    watch: true,
+    
   });
 
   const openGames = useMemo(() => {

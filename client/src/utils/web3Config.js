@@ -1,6 +1,6 @@
 import { getDefaultConfig } from '@rainbow-me/rainbowkit';
 import { base, baseSepolia, sepolia } from 'wagmi/chains';
-import { defineChain } from 'viem';
+import { defineChain, http } from 'viem';
 
 // Local anvil — use VITE_ANVIL_RPC_URL if you run this project's anvil on a different port (e.g. 8546 when another app uses 8545)
 const ANVIL_RPC = import.meta.env.VITE_ANVIL_RPC_URL || 'http://127.0.0.1:8545';
@@ -32,11 +32,19 @@ const chain = CHAIN_ID === 8453    ? baseChain
             : CHAIN_ID === 11155111 ? sepoliaChain
             : anvil;
 
+// Explicit transport — uses VITE_BASE_RPC_URL (Infura/Alchemy) when set,
+// otherwise falls back to the chain's default public RPC.
+const rpcUrl = CHAIN_ID === 8453 ? (import.meta.env.VITE_BASE_RPC_URL || undefined)
+             : CHAIN_ID === 11155111 ? (import.meta.env.VITE_SEPOLIA_RPC_URL || undefined)
+             : CHAIN_ID === 31337 ? ANVIL_RPC
+             : undefined;
+
 export const wagmiConfig = getDefaultConfig({
-  appName:   'CryptoPoker',
-  projectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || 'demo',
-  chains:    [chain],
-  ssr:       false,
+  appName:    'CryptoPoker',
+  projectId:  import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || 'demo',
+  chains:     [chain],
+  transports: { [chain.id]: http(rpcUrl) },
+  ssr:        false,
 });
 
 export const TOKEN_ADDRESS  = import.meta.env.VITE_TOKEN_ADDRESS;
