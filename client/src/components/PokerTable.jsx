@@ -103,6 +103,7 @@ export default function PokerTable({ myAddress }) {
   const [chatInput,    setChatInput]    = useState('');
   const [sideTab,      setSideTab]      = useState('history');
   const [handResult,   setHandResult]   = useState(null);
+  const [welcomeVisible, setWelcomeVisible] = useState(true);
   const [startError,   setStartError]   = useState(null);
   const [raiseAmt,     setRaiseAmt]     = useState('');
   // Container dimensions — updated by ResizeObserver, drives all geometry at 1:1 pixel scale
@@ -182,6 +183,11 @@ export default function PokerTable({ myAddress }) {
   useEffect(() => { if (gameState?.stage && gameState.stage !== 'waiting') setStartError(null); }, [gameState?.stage]);
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [chatLog]);
   useEffect(() => { setRaiseAmt(''); }, [gameState?.currentBet]);
+  useEffect(() => {
+    setWelcomeVisible(true);
+    const t = setTimeout(() => setWelcomeVisible(false), 2600);
+    return () => clearTimeout(t);
+  }, [gameState?.tableId]);
 
   if (!gameState) return null;
 
@@ -847,6 +853,26 @@ export default function PokerTable({ myAddress }) {
                 )}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Welcome banner ─────────────────────────────────────────────────────── */}
+      {welcomeVisible && (
+        <div style={{ position:'fixed', inset:0, display:'flex', alignItems:'flex-start', justifyContent:'center', zIndex:55, pointerEvents:'none', paddingTop:72 }}>
+          <div className="fade-in" style={{
+            borderRadius: 999,
+            padding: '10px 16px',
+            border: `1px solid ${G}55`,
+            background: 'rgba(7,18,30,0.92)',
+            color: G,
+            fontSize: 11,
+            fontWeight: 800,
+            letterSpacing: '0.18em',
+            boxShadow: `0 0 28px ${G}25`,
+            textTransform: 'uppercase',
+          }}>
+            Welcome to the table
           </div>
         </div>
       )}
