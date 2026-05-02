@@ -1,13 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccount, useWriteContract, useReadContract, useReadContracts } from 'wagmi';
+import { waitForTransactionReceipt } from '@wagmi/core';
 import { parseUnits, formatUnits } from 'viem';
 import {
   SERVER_URL, SERVER_API_KEY,
   TOKEN_ADDRESS, VAULT_ADDRESS, TOKEN_DECIMALS, TOKEN_SYMBOL,
   VAULT_ABI, ERC20_ABI, CHAIN_ID, ANVIL_RPC_URL,
   USDC_ADDRESS, USDC_DECIMALS, ZAX_MIGGY_VAULT_ADDRESS, ZAX_MIGGY_VAULT_ABI,
-  isBaseWithUsdc,
+  isBaseWithUsdc, wagmiConfig,
 } from '../utils/web3Config';
 import { useGame } from '../context/GameContext';
 
@@ -213,12 +214,12 @@ function DepositModal({ onClose, onDeposited }) {
     try {
       if (!allowance || allowance < gross) {
         setStep('approving');
-        await writeContractAsync({ address: TOKEN_ADDRESS, abi: ERC20_ABI, functionName: 'approve', args: [VAULT_ADDRESS, gross] });
-        await new Promise(r => setTimeout(r, 4000));
+        const approveHash = await writeContractAsync({ address: TOKEN_ADDRESS, abi: ERC20_ABI, functionName: 'approve', args: [VAULT_ADDRESS, gross] });
+        await waitForTransactionReceipt(wagmiConfig, { hash: approveHash });
       }
       setStep('depositing');
-      await writeContractAsync({ address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'deposit', args: [gross] });
-      await new Promise(r => setTimeout(r, 4000));
+      const depositHash = await writeContractAsync({ address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'deposit', args: [gross] });
+      await waitForTransactionReceipt(wagmiConfig, { hash: depositHash });
       const net = Math.floor(Number(amount) * 0.92);
       onDeposited(net);
       setStep('done');
@@ -309,12 +310,12 @@ function CreateUsdcGameModal({ onClose, onCreated }) {
     try {
       if (!usdcAllowance || usdcAllowance < raw) {
         setStep('approving');
-        await writeContractAsync({ address: USDC_ADDRESS, abi: ERC20_ABI, functionName: 'approve', args: [ZAX_MIGGY_VAULT_ADDRESS, raw] });
-        await new Promise(r => setTimeout(r, 3000));
+        const approveHash = await writeContractAsync({ address: USDC_ADDRESS, abi: ERC20_ABI, functionName: 'approve', args: [ZAX_MIGGY_VAULT_ADDRESS, raw] });
+        await waitForTransactionReceipt(wagmiConfig, { hash: approveHash });
       }
       setStep('creating');
-      await writeContractAsync({ address: ZAX_MIGGY_VAULT_ADDRESS, abi: ZAX_MIGGY_VAULT_ABI, functionName: 'createGame', args: [raw] });
-      await new Promise(r => setTimeout(r, 4000));
+      const createHash = await writeContractAsync({ address: ZAX_MIGGY_VAULT_ADDRESS, abi: ZAX_MIGGY_VAULT_ABI, functionName: 'createGame', args: [raw] });
+      await waitForTransactionReceipt(wagmiConfig, { hash: createHash });
       const res = await refetchNextGameId();
       const id = Number(res.data ?? 0) - 1;
       setGameId(id);
@@ -428,12 +429,12 @@ function JoinUsdcGameModal({ onClose, onJoined, openGames = [] }) {
     try {
       if (!usdcAllowance || usdcAllowance < depositAmount) {
         setStep('approving');
-        await writeContractAsync({ address: USDC_ADDRESS, abi: ERC20_ABI, functionName: 'approve', args: [ZAX_MIGGY_VAULT_ADDRESS, depositAmount] });
-        await new Promise(r => setTimeout(r, 3000));
+        const approveHash = await writeContractAsync({ address: USDC_ADDRESS, abi: ERC20_ABI, functionName: 'approve', args: [ZAX_MIGGY_VAULT_ADDRESS, depositAmount] });
+        await waitForTransactionReceipt(wagmiConfig, { hash: approveHash });
       }
       setStep('joining');
-      await writeContractAsync({ address: ZAX_MIGGY_VAULT_ADDRESS, abi: ZAX_MIGGY_VAULT_ABI, functionName: 'joinGame', args: [BigInt(validGameId)] });
-      await new Promise(r => setTimeout(r, 4000));
+      const joinHash = await writeContractAsync({ address: ZAX_MIGGY_VAULT_ADDRESS, abi: ZAX_MIGGY_VAULT_ABI, functionName: 'joinGame', args: [BigInt(validGameId)] });
+      await waitForTransactionReceipt(wagmiConfig, { hash: joinHash });
       onJoined?.();
       navigate(`/game/${validGameId}`);
       onClose();
