@@ -424,21 +424,34 @@ function JoinUsdcGameModal({ onClose, onJoined, openGames = [] }) {
   });
 
   async function handleJoin() {
-    if (validGameId == null || !depositAmount) return;
+    console.log('[JOIN] clicked — validGameId:', validGameId, 'depositAmount:', depositAmount?.toString(), 'canJoin:', canJoin, 'usdcAllowance:', usdcAllowance?.toString());
+    if (validGameId == null || !depositAmount) {
+      console.warn('[JOIN] early return — missing validGameId or depositAmount');
+      return;
+    }
     setError(null);
     try {
       if (!usdcAllowance || usdcAllowance < depositAmount) {
+        console.log('[JOIN] allowance insufficient — sending approve tx');
         setStep('approving');
         const approveHash = await writeContractAsync({ address: USDC_ADDRESS, abi: ERC20_ABI, functionName: 'approve', args: [ZAX_MIGGY_VAULT_ADDRESS, depositAmount] });
+        console.log('[JOIN] approve tx sent:', approveHash, '— waiting for receipt…');
         await waitForTransactionReceipt(wagmiConfig, { hash: approveHash });
+        console.log('[JOIN] approve confirmed');
+      } else {
+        console.log('[JOIN] allowance sufficient — skipping approve');
       }
+      console.log('[JOIN] sending joinGame tx for gameId:', validGameId);
       setStep('joining');
       const joinHash = await writeContractAsync({ address: ZAX_MIGGY_VAULT_ADDRESS, abi: ZAX_MIGGY_VAULT_ABI, functionName: 'joinGame', args: [BigInt(validGameId)] });
+      console.log('[JOIN] joinGame tx sent:', joinHash, '— waiting for receipt…');
       await waitForTransactionReceipt(wagmiConfig, { hash: joinHash });
+      console.log('[JOIN] joinGame confirmed — navigating to /game/' + validGameId);
       onJoined?.();
       navigate(`/game/${validGameId}`);
       onClose();
     } catch (err) {
+      console.error('[JOIN] error:', err);
       setError(err.shortMessage || err.message || 'Transaction failed');
       setStep('input');
     }

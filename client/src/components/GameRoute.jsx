@@ -32,6 +32,8 @@ export default function GameRoute() {
   const vaultReady = !!ZAX_MIGGY_VAULT_ADDRESS && !isNaN(gameId);
   const addrLower = address?.toLowerCase();
 
+  console.log('[GAMEROUTE] render — gameId:', gameId, 'connected:', connected, 'address:', addrLower, 'justCreated:', justCreated);
+
   // ── On-chain membership check ──────────────────────────────────────────────
   const { data: rawGameData, isLoading, error: readError } = useReadContract({
     address: vaultReady ? ZAX_MIGGY_VAULT_ADDRESS : undefined,
@@ -57,11 +59,20 @@ export default function GameRoute() {
 
   // ── Join socket table once on-chain check passes ───────────────────────────
   useEffect(() => {
-    if (!connected || isAtThisTable || isNaN(gameId)) return;
-    if (vaultReady && (isLoading || !isPlayer)) return;
-
-    joinUsdcTable(gameId).catch(err => {
-      // "Already at a table" means server still has us — treat as success
+    console.log('[GAMEROUTE] joinEffect — connected:', connected, 'isAtThisTable:', isAtThisTable, 'isLoading:', isLoading, 'isPlayer:', isPlayer, 'vaultReady:', vaultReady, 'gameId:', gameId);
+    if (!connected || isAtThisTable || isNaN(gameId)) {
+      console.log('[GAMEROUTE] joinEffect — skipping (connected/isAtThisTable/gameId guard)');
+      return;
+    }
+    if (vaultReady && (isLoading || !isPlayer)) {
+      console.log('[GAMEROUTE] joinEffect — skipping (vault check: isLoading=' + isLoading + ' isPlayer=' + isPlayer + ')');
+      return;
+    }
+    console.log('[GAMEROUTE] joinEffect — calling joinUsdcTable(' + gameId + ')');
+    joinUsdcTable(gameId).then(state => {
+      console.log('[GAMEROUTE] joinUsdcTable success — state:', state);
+    }).catch(err => {
+      console.error('[GAMEROUTE] joinUsdcTable error:', err.message);
       if (!err.message?.includes('Already at a table')) {
         setJoinError(err.message || 'Could not join table');
       }
@@ -81,10 +92,10 @@ export default function GameRoute() {
   if (isNaN(gameId)) return <Navigate to="/lobby" replace />;
 
   if (vaultReady) {
-    if (isLoading) return <CenteredMsg>Verifying access…</CenteredMsg>;
-    if (readError) return <CenteredMsg isError>Could not verify game access — make sure you're on Base network.</CenteredMsg>;
-    if (gameData && !isPlayer && !justCreated) return <Navigate to="/lobby" replace />;
-    if (finished) return <CenteredMsg>Game #{gameId} has finished.</CenteredMsg>;
+    if (isLoading) { console.log('[GAMEROUTE] render — isLoading, showing verifying'); return <CenteredMsg>Verifying access…</CenteredMsg>; }
+    if (readError) { console.error('[GAMEROUTE] readError:', readError); return <CenteredMsg isError>Could not verify game access — make sure you're on Base network.</CenteredMsg>; }
+    if (gameData && !isPlayer && !justCreated) { console.warn('[GAMEROUTE] not a player — redirecting to lobby. players:', players, 'addrLower:', addrLower); return <Navigate to="/lobby" replace />; }
+    if (finished) { console.log('[GAMEROUTE] game finished'); return <CenteredMsg>Game #{gameId} has finished.</CenteredMsg>; }
   }
 
   if (joinError) return <CenteredMsg isError>{joinError}</CenteredMsg>;
