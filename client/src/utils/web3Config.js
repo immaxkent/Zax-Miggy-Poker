@@ -21,7 +21,13 @@ const sepoliaChain = CHAIN_ID === 11155111 && SEPOLIA_RPC
   ? { ...sepolia, rpcUrls: { default: { http: [SEPOLIA_RPC] } } }
   : sepolia;
 
-const chain = CHAIN_ID === 8453    ? base
+// Use a dedicated RPC if provided — avoids rate limits on the public mainnet.base.org endpoint
+const BASE_RPC = import.meta.env.VITE_BASE_RPC_URL;
+const baseChain = BASE_RPC
+  ? { ...base, rpcUrls: { default: { http: [BASE_RPC] } } }
+  : base;
+
+const chain = CHAIN_ID === 8453    ? baseChain
             : CHAIN_ID === 84532  ? baseSepolia
             : CHAIN_ID === 11155111 ? sepoliaChain
             : anvil;

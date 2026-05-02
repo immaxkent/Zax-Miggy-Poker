@@ -69,7 +69,12 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
-app.use(rateLimiter(120, 60_000));
+// Exclude socket.io path — its WebSocket upgrade handshake must not be rate-limited.
+// Socket.IO connections are protected by JWT auth independently.
+app.use((req, res, next) => {
+  if (req.path.startsWith('/socket.io')) return next();
+  return rateLimiter(120, 60_000)(req, res, next);
+});
 
 // ── Health check (no auth — used by AWS ALB) ──────────────────────────────────
 app.get('/health', (_, res) => {
