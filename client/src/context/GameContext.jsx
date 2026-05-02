@@ -105,9 +105,9 @@ export function GameProvider({ children, authToken, walletAddress }) {
     });
   }, []);
 
-  const joinUsdcTable = useCallback((gameId) => {
+  const joinUsdcTable = useCallback((gameId, creatorAddress) => {
     return new Promise((resolve, reject) => {
-      socketRef.current?.emit('joinUsdcTable', { gameId }, (res) => {
+      socketRef.current?.emit('joinUsdcTable', { gameId, creatorAddress }, (res) => {
         if (res?.error) reject(new Error(res.error));
         else { setGameState(res.state); resolve(res.state); }
       });

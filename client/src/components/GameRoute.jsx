@@ -69,8 +69,9 @@ export default function GameRoute() {
       console.log('[GAMEROUTE] joinEffect — skipping (vault check: isLoading=' + isLoading + ' isPlayer=' + isPlayer + ' justJoined=' + justJoined + ' isFetchedAfterMount=' + isFetchedAfterMount + ')');
       return;
     }
-    console.log('[GAMEROUTE] joinEffect — calling joinUsdcTable(' + gameId + ')');
-    joinUsdcTable(gameId).then(state => {
+    const creatorAddress = Array.isArray(players) && players[0] ? String(players[0]) : undefined;
+    console.log('[GAMEROUTE] joinEffect — calling joinUsdcTable(' + gameId + ') creatorAddress:', creatorAddress);
+    joinUsdcTable(gameId, creatorAddress).then(state => {
       console.log('[GAMEROUTE] joinUsdcTable success — state:', state);
     }).catch(err => {
       console.error('[GAMEROUTE] joinUsdcTable error:', err.message);

@@ -258,7 +258,7 @@ io.on('connection', (socket) => {
   });
 
   // ── Join USDC game table (on-chain game → server table for gameplay) ─────────
-  socket.on('joinUsdcTable', ({ gameId }, ack) => {
+  socket.on('joinUsdcTable', ({ gameId, creatorAddress }, ack) => {
     try {
       const player = players.get(playerId);
       if (!player) return ack?.({ error: 'NOT_AUTHENTICATED' });
@@ -285,9 +285,13 @@ io.on('connection', (socket) => {
           minPlayers: usdcStake.minPlayers || config.tables.minPlayersToStart,
         }, tableId);
         tables.set(tableId, table);
-        console.log(`📋 USDC table created: ${tableId}`);
-        table.hostId = null;
+        // Use the on-chain creator as the authoritative host so connection order doesn't matter
+        table.hostId = creatorAddress ? creatorAddress.toLowerCase() : null;
         table.gameStarted = false;
+        console.log(`📋 USDC table created: ${tableId} hostId=${table.hostId}`);
+      } else if (!table.hostId && creatorAddress) {
+        // Table exists but host was cleared — restore from on-chain creator
+        table.hostId = creatorAddress.toLowerCase();
       }
 
       const stackMap = usdcStacks.get(tableId) || new Map();
@@ -296,7 +300,6 @@ io.on('connection', (socket) => {
       if (savedStack != null) stackMap.delete(playerId);
       usdcStacks.set(tableId, stackMap);
       player.tableId = tableId;
-      if (!table.hostId) table.hostId = (playerId || '').toLowerCase();
       const state = enrichState(table, table.sitDown({ id: playerId, address: playerId, chips: startingChips }), playerId);
 
       socket.join(tableId);
