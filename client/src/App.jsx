@@ -20,11 +20,11 @@ const P  = '#ff0070';   // hot pink
 const BG = '#090d14';   // main bg
 
 // ─── Shared nav bar ────────────────────────────────────────────────────────────
-function NavBar({ authed, connected, onlinePlayers }) {
+function NavBar({ connected, onlinePlayers, walletConnected }) {
   const { pathname } = useLocation();
 
-  const links = [
-    { label: 'HOME',  to: '/',      active: pathname === '/' },
+  const links = [{ label: 'HOME', to: '/', active: pathname === '/' }];
+  const protectedLinks = [
     { label: 'LOBBY', to: '/lobby', active: pathname === '/lobby' },
     { label: 'TABLE', to: '/lobby', active: pathname.startsWith('/game') },
   ];
@@ -56,7 +56,7 @@ function NavBar({ authed, connected, onlinePlayers }) {
       </Link>
 
       {/* Nav links */}
-      <div style={{ display: 'flex', gap: 36 }}>
+      <div style={{ display: 'flex', gap: 36, alignItems: 'center' }}>
         {links.map(({ label, to, active }) => (
           <Link key={label} to={to} style={{
             color: active ? G : '#64748b',
@@ -68,6 +68,21 @@ function NavBar({ authed, connected, onlinePlayers }) {
             {label}
           </Link>
         ))}
+        {walletConnected && (
+          <div style={{ display: 'flex', gap: 36, opacity: 0, animation: 'navFadeIn 10s ease forwards' }}>
+            {protectedLinks.map(({ label, to, active }) => (
+              <Link key={label} to={to} style={{
+                color: active ? G : '#64748b',
+                fontSize: 12, fontWeight: 700, letterSpacing: '0.14em',
+                textDecoration: 'none', paddingBottom: 3,
+                borderBottom: `2px solid ${active ? G : 'transparent'}`,
+                transition: 'color 0.15s, border-color 0.15s',
+              }}>
+                {label}
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Right */}
@@ -439,10 +454,14 @@ function AppRoutes() {
           from { opacity: 0; transform: translate(-50%, -20px); }
           to   { opacity: 1; transform: translate(-50%, 0); }
         }
+        @keyframes navFadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
         a:hover { opacity: 0.85; }
       `}</style>
 
-      <NavBar authed={authed} connected={connected} socketError={socketError} onlinePlayers={onlinePlayers} />
+      <NavBar connected={connected} socketError={socketError} onlinePlayers={onlinePlayers} walletConnected={!!address} />
 
       {/* Global toast */}
       {notification && (
@@ -478,7 +497,9 @@ function AppRoutes() {
           } />
 
           <Route path="/lobby" element={
-            !authed
+            !address
+              ? <Navigate to="/" replace />
+              : !authed
               ? <Navigate to="/" replace />
               : (gameState && !gameState.tableId?.startsWith('usdc-'))
                 ? <PokerTable myAddress={address?.toLowerCase()} />
@@ -486,7 +507,9 @@ function AppRoutes() {
           } />
 
           <Route path="/game/:gameId" element={
-            !authed
+            !address
+              ? <Navigate to="/" replace />
+              : !authed
               ? <Navigate to="/" replace />
               : <GameRoute />
           } />
