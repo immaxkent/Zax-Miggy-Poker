@@ -20,7 +20,7 @@ const P  = '#ff0070';   // hot pink
 const BG = '#090d14';   // main bg
 
 // ─── Shared nav bar ────────────────────────────────────────────────────────────
-function NavBar({ connected, onlinePlayers, walletConnected }) {
+function NavBar({ connected, onlinePlayers, authed }) {
   const { pathname } = useLocation();
 
   const links = [{ label: 'HOME', to: '/', active: pathname === '/' }];
@@ -55,8 +55,15 @@ function NavBar({ connected, onlinePlayers, walletConnected }) {
         </div>
       </Link>
 
-      {/* Nav links */}
-      <div style={{ display: 'flex', gap: 36, alignItems: 'center' }}>
+      {/* Centered nav links */}
+      <div style={{
+        position: 'absolute',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        display: 'flex',
+        gap: 36,
+        alignItems: 'center',
+      }}>
         {links.map(({ label, to, active }) => (
           <Link key={label} to={to} style={{
             color: active ? G : '#64748b',
@@ -68,7 +75,7 @@ function NavBar({ connected, onlinePlayers, walletConnected }) {
             {label}
           </Link>
         ))}
-        {walletConnected && (
+        {authed && (
           <div style={{ display: 'flex', gap: 36, opacity: 0, animation: 'navFadeIn 10s ease forwards' }}>
             {protectedLinks.map(({ label, to, active }) => (
               <Link key={label} to={to} style={{
@@ -461,7 +468,7 @@ function AppRoutes() {
         a:hover { opacity: 0.85; }
       `}</style>
 
-      <NavBar connected={connected} socketError={socketError} onlinePlayers={onlinePlayers} walletConnected={!!address} />
+      <NavBar connected={connected} socketError={socketError} onlinePlayers={onlinePlayers} authed={authed} />
 
       {/* Global toast */}
       {notification && (
