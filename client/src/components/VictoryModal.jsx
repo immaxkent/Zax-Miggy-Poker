@@ -1,4 +1,5 @@
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
+import ModalShell from './ModalShell';
 
 const G = '#00e676';
 const P = '#ff0070';
@@ -21,41 +22,7 @@ export default function VictoryModal({ victory, onClose }) {
   const summary = victory?.summary || {};
 
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.22 }}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 120,
-            background: 'rgba(2,6,12,0.72)',
-            backdropFilter: 'blur(8px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 18,
-          }}
-        >
-          <motion.div
-            initial={{ opacity: 0, y: 30, scale: 0.92 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 16, scale: 0.96 }}
-            transition={{ type: 'spring', stiffness: 220, damping: 20 }}
-            style={{
-              width: 'min(560px, 100%)',
-              borderRadius: 18,
-              border: `1px solid ${G}55`,
-              background: 'linear-gradient(160deg,#07121d 0%,#0b0f1d 56%,#130b1e 100%)',
-              boxShadow: `0 20px 90px ${G}20, 0 0 0 1px rgba(255,255,255,0.03) inset`,
-              padding: 22,
-              position: 'relative',
-              overflow: 'hidden',
-            }}
-          >
+    <ModalShell open={open} borderColor={`${G}55`} glow={`${G}20`}>
             <motion.div
               animate={{ rotate: [0, 2, -2, 0], scale: [1, 1.05, 1] }}
               transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
@@ -135,9 +102,6 @@ export default function VictoryModal({ victory, onClose }) {
                 AWESOME
               </button>
             </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    </ModalShell>
   );
 }

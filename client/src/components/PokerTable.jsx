@@ -4,6 +4,7 @@ import { formatUnits } from 'viem';
 import { useGame } from '../context/GameContext';
 import { ZAX_MIGGY_VAULT_ADDRESS, ZAX_MIGGY_VAULT_ABI, USDC_DECIMALS } from '../utils/web3Config';
 import { gameIdToName } from '../pages/Lobby';
+import ModalShell from './ModalShell';
 
 const G = '#00e676';
 const P = '#ff0070';
@@ -934,27 +935,8 @@ export default function PokerTable({ myAddress }) {
 
       {/* ── Welcome banner ─────────────────────────────────────────────────────── */}
       {welcomeVisible && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          zIndex: 120,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          pointerEvents: 'none',
-          padding: 18,
-          background: 'rgba(2,6,12,0.72)',
-          backdropFilter: 'blur(8px)',
-        }}>
+        <ModalShell open={welcomeVisible} borderColor={`${G}55`} glow={`${G}20`} pointerEvents="none">
           <div style={{
-            width: 'min(560px, 100%)',
-            borderRadius: 18,
-            border: `1px solid ${G}55`,
-            background: 'linear-gradient(160deg,#07121d 0%,#0b0f1d 56%,#130b1e 100%)',
-            boxShadow: `0 20px 90px ${G}20, 0 0 0 1px rgba(255,255,255,0.03) inset`,
-            padding: 22,
-            position: 'relative',
-            overflow: 'hidden',
             textAlign: 'center',
           }}>
             <div style={{
@@ -997,7 +979,7 @@ export default function PokerTable({ myAddress }) {
               {welcomeText}
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
 
     </div>
