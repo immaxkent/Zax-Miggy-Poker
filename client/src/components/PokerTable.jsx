@@ -934,15 +934,32 @@ export default function PokerTable({ myAddress }) {
 
       {/* ── Welcome banner ─────────────────────────────────────────────────────── */}
       {welcomeVisible && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-2xl font-bold text-sm"
-          style={{
-            background: 'linear-gradient(135deg, #0c1a3a, #1e3a5f)',
-            border: '1px solid #3b82f6',
-            boxShadow: '0 8px 32px rgba(59,130,246,0.3)',
-            color: 'white',
-            animation: 'slideDown 0.3s ease',
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 120,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          pointerEvents: 'none',
+          background: 'rgba(2,6,12,0.58)',
+          backdropFilter: 'blur(8px)',
+        }}>
+          <div className="fade-in" style={{
+            borderRadius: 16,
+            padding: '24px 36px',
+            textAlign: 'center',
+            background: 'rgba(9,13,20,0.95)',
+            border: '1px solid rgba(59,130,246,0.5)',
+            boxShadow: '0 0 60px rgba(59,130,246,0.25)',
           }}>
-          {welcomeText}
+            <div style={{ color:'#60a5fa', fontSize:11, fontWeight:700, letterSpacing:'0.22em', marginBottom:12 }}>
+              TABLE JOINED
+            </div>
+            <div style={{ color:'#e2e8f0', fontSize:17, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase' }}>
+              {welcomeText}
+            </div>
+          </div>
         </div>
       )}
 
