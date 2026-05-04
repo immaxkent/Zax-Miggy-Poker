@@ -34,6 +34,37 @@ loadEnv();
 const SSH_KEY = process.env.REDEPLOY_SSH_KEY || path.join(process.env.HOME || '', 'Downloads', 'poker-game-server.pem');
 const SSH_HOST = process.env.REDEPLOY_SSH_HOST || 'ubuntu@35.179.163.69';
 const REMOTE_DIR = process.env.REDEPLOY_REMOTE_DIR || '/home/ubuntu/Zax-Miggy-Poker';
+const BUILD_VERSION_FILE = path.join(root, 'client', 'src', 'buildVersion.js');
+
+function parseVersion(v) {
+  const m = String(v || '').trim().match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!m) return null;
+  return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]) };
+}
+
+function readCurrentBuildVersion() {
+  if (!fs.existsSync(BUILD_VERSION_FILE)) return '0.2.000';
+  const src = fs.readFileSync(BUILD_VERSION_FILE, 'utf8');
+  const m = src.match(/APP_VERSION\s*=\s*['"](\d+\.\d+\.\d+)['"]/);
+  return m ? m[1] : '0.2.000';
+}
+
+function writeBuildVersion(version) {
+  fs.writeFileSync(BUILD_VERSION_FILE, `export const APP_VERSION = '${version}';\n`, 'utf8');
+}
+
+function bumpBuildVersion() {
+  const current = readCurrentBuildVersion();
+  const parsed = parseVersion(current) || { major: 0, minor: 2, patch: 0 };
+  // Pre-production multi-route train: 0.2.x
+  const major = 0;
+  const minor = 2;
+  const patch = parsed.patch + 1;
+  const next = `${major}.${minor}.${String(patch).padStart(3, '0')}`;
+  writeBuildVersion(next);
+  console.log(`Build version bumped: ${current} -> ${next}`);
+  return next;
+}
 
 function run(cmd, opts = {}) {
   return execSync(cmd, { encoding: 'utf8', cwd: root, ...opts });
@@ -48,7 +79,7 @@ function hasChanges() {
   }
 }
 
-function commitAndPush() {
+function commitAndPush(version) {
   if (!hasChanges()) {
     console.log('No uncommitted changes. Skipping commit & push.');
     return false;
@@ -56,7 +87,7 @@ function commitAndPush() {
   console.log('Uncommitted changes found. Adding, committing, pushing...');
   run('git add -A');
   try {
-    const msg = process.env.REDEPLOY_COMMIT_MSG || 'chore: redeploy ' + new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const msg = process.env.REDEPLOY_COMMIT_MSG || `chore: redeploy v${version}`;
     execFileSync('git', ['commit', '-m', msg], { encoding: 'utf8', cwd: root });
   } catch (e) {
     const out = [e.stdout, e.stderr].filter(Boolean).join('');
@@ -66,7 +97,10 @@ function commitAndPush() {
     }
     throw e;
   }
+  const tag = `v${version}`;
+  run(`git tag -a ${tag} -m "Deploy ${tag}"`);
   run('git push');
+  run(`git push origin ${tag}`);
   console.log('Pushed. Vercel will redeploy the frontend.');
   return true;
 }
@@ -93,6 +127,7 @@ function restartServer() {
   }
 }
 
-commitAndPush();
+const deployVersion = bumpBuildVersion();
+commitAndPush(deployVersion);
 restartServer();
-console.log('Redeploy done.');
+console.log(`Redeploy done. Version: ${deployVersion}`);
