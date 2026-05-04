@@ -942,21 +942,58 @@ export default function PokerTable({ myAddress }) {
           alignItems: 'center',
           justifyContent: 'center',
           pointerEvents: 'none',
-          background: 'rgba(2,6,12,0.58)',
+          padding: 18,
+          background: 'rgba(2,6,12,0.72)',
           backdropFilter: 'blur(8px)',
         }}>
-          <div className="fade-in" style={{
-            borderRadius: 16,
-            padding: '24px 36px',
+          <div style={{
+            width: 'min(560px, 100%)',
+            borderRadius: 18,
+            border: `1px solid ${G}55`,
+            background: 'linear-gradient(160deg,#07121d 0%,#0b0f1d 56%,#130b1e 100%)',
+            boxShadow: `0 20px 90px ${G}20, 0 0 0 1px rgba(255,255,255,0.03) inset`,
+            padding: 22,
+            position: 'relative',
+            overflow: 'hidden',
             textAlign: 'center',
-            background: 'rgba(9,13,20,0.95)',
-            border: '1px solid rgba(59,130,246,0.5)',
-            boxShadow: '0 0 60px rgba(59,130,246,0.25)',
           }}>
-            <div style={{ color:'#60a5fa', fontSize:11, fontWeight:700, letterSpacing:'0.22em', marginBottom:12 }}>
-              TABLE JOINED
+            <div style={{
+              width: 98,
+              height: 98,
+              margin: '0 auto 14px',
+              borderRadius: '50%',
+              border: `2px solid ${G}99`,
+              background: `radial-gradient(circle at 30% 30%, ${G}77 0%, ${P}55 46%, rgba(0,0,0,0.15) 100%)`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#04150a',
+              fontWeight: 900,
+              fontSize: 20,
+              textShadow: '0 1px 0 rgba(255,255,255,0.35)',
+              boxShadow: `0 0 40px ${G}40`,
+            }}>
+              HI
             </div>
-            <div style={{ color:'#e2e8f0', fontSize:17, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase' }}>
+            <div style={{ textAlign: 'center', marginBottom: 2 }}>
+              <div style={{ color: G, fontWeight: 900, fontSize: 30, letterSpacing: '0.08em' }}>WELCOME</div>
+              <div style={{ color: '#8ea5b9', fontSize: 11, letterSpacing: '0.18em' }}>
+                YOU JOINED THE TABLE
+              </div>
+            </div>
+            <div style={{
+              marginTop: 10,
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 10,
+              padding: '10px 12px',
+              background: 'rgba(2,12,20,0.7)',
+              color: '#9fb3c7',
+              fontSize: 13,
+              fontFamily: 'Space Mono,monospace',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              wordBreak: 'break-word',
+            }}>
               {welcomeText}
             </div>
           </div>

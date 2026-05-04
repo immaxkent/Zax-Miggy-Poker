@@ -308,6 +308,10 @@ function CreateUsdcGameModal({ onClose, onCreated }) {
     setError(null);
     const raw = parseUnits(amount, USDC_DECIMALS);
     try {
+      // Capture the on-chain nextGameId immediately before create.
+      // The new game will use this id, which avoids off-by-one race/stale reads after tx.
+      const before = await refetchNextGameId();
+      const createdId = Number(before?.data ?? nextGameIdData ?? 0);
       if (!usdcAllowance || usdcAllowance < raw) {
         setStep('approving');
         const approveHash = await writeContractAsync({ address: USDC_ADDRESS, abi: ERC20_ABI, functionName: 'approve', args: [ZAX_MIGGY_VAULT_ADDRESS, raw] });
@@ -316,10 +320,8 @@ function CreateUsdcGameModal({ onClose, onCreated }) {
       setStep('creating');
       const createHash = await writeContractAsync({ address: ZAX_MIGGY_VAULT_ADDRESS, abi: ZAX_MIGGY_VAULT_ABI, functionName: 'createGame', args: [raw] });
       await waitForTransactionReceipt(wagmiConfig, { hash: createHash });
-      const res = await refetchNextGameId();
-      const id = Number(res.data ?? 0) - 1;
-      setGameId(id);
-      onCreated?.(id);
+      setGameId(createdId);
+      onCreated?.(createdId);
       setStep('done');
     } catch (err) {
       setError(err.shortMessage || err.message || 'Transaction failed');
@@ -374,6 +376,10 @@ function JoinUsdcGameModal({ onClose, onJoined, openGames = [], initialGameId = 
   const [error, setError] = useState(null);
   const { writeContractAsync } = useWriteContract();
   const wrongNetwork = chainId != null && Number(chainId) !== CHAIN_ID;
+
+  useEffect(() => {
+    setInput(initialGameId != null ? String(initialGameId) : '');
+  }, [initialGameId]);
 
   // Resolve input: accept game ID number OR 3-word name
   const validGameId = useMemo(() => {
