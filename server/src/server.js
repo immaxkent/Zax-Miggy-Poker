@@ -48,6 +48,7 @@ const runoutTimers = new Map(); // tableId -> timeout for all-in runout pacing
 const actionTimers = new Map(); // tableId -> timeout for current turn
 const nextHandCountdownTimers = new Map(); // tableId -> interval for next-hand countdown broadcast
 const RUNOUT_DELAY_MS = 3_000;
+const HYGIENE_INTERVAL_MS = 5_000;
 
 // ─── Pre-create tables for each stake level ───────────────────────────────────
 for (const [key, stakeConfig] of Object.entries(config.tables.stakes)) {
@@ -198,6 +199,11 @@ app.get('/tables', requireApiKey, (_, res) => {
   res.json(list);
 });
 
+app.post('/ops/hygiene', requireApiKey, (_, res) => {
+  const report = runHygieneSweep('manual');
+  res.json({ ok: true, report });
+});
+
 // ─── Socket.IO ────────────────────────────────────────────────────────────────
 const httpServer = createServer(app);
 const io         = new Server(httpServer, {
@@ -268,9 +274,11 @@ io.on('connection', (socket) => {
     try {
       const player = players.get(playerId);
       if (!player) return ack?.({ error: 'NOT_AUTHENTICATED' });
-      if (player.tableId) return ack?.({ error: 'Already at a table. Leave first.' });
 
       const tableId = `usdc-${gameId}`;
+      if (player.tableId && player.tableId !== tableId) {
+        return ack?.({ error: 'Already at a table. Leave first.' });
+      }
       if (terminatedTables.has(tableId)) {
         return ack?.({ error: 'Game has been terminated and cannot be rejoined' });
       }
@@ -300,6 +308,20 @@ io.on('connection', (socket) => {
         table.hostId = creatorAddress.toLowerCase();
       }
 
+      // Self-heal reconnect/re-entry: if already seated on this table, rejoin room and return state.
+      if (player.tableId === tableId) {
+        const alreadySeated = table.players.find(p => (p.id || '').toLowerCase() === playerId);
+        if (alreadySeated) {
+          alreadySeated.connected = true;
+          socket.join(tableId);
+          const state = enrichState(table, table.toPublicState(playerId), playerId);
+          ack?.({ state, healed: true });
+          scheduleAllInRunout(io, table);
+          scheduleActionTimer(io, table);
+          return;
+        }
+      }
+
       const stackMap = usdcStacks.get(tableId) || new Map();
       const savedStack = stackMap.get(playerId);
       const startingChips = savedStack != null ? savedStack : 1000;
@@ -311,6 +333,8 @@ io.on('connection', (socket) => {
       socket.join(tableId);
       io.to(tableId).emit('playerJoined', { playerId, chips: startingChips });
       ack?.({ state });
+      scheduleAllInRunout(io, table);
+      scheduleActionTimer(io, table);
 
       // No auto-start: host must call startGame
     } catch (err) {
@@ -831,6 +855,43 @@ function verifySocketPayload(socket, payload) {
   return true;
 }
 
+function runHygieneSweep(reason = 'interval') {
+  let tablesChecked = 0;
+  let playerLinksFixed = 0;
+  let pipelinesRearmed = 0;
+  let pendingHandled = 0;
+
+  for (const [tableId, table] of tables.entries()) {
+    tablesChecked++;
+
+    // Keep players map and table seat ownership in sync.
+    for (const seat of table.players) {
+      const rec = players.get(seat.id);
+      if (rec && rec.tableId !== tableId) {
+        rec.tableId = tableId;
+        playerLinksFixed++;
+      }
+    }
+
+    if (table.pendingHandComplete) {
+      handlePendingHandComplete(io, table, tableId);
+      pendingHandled++;
+      continue;
+    }
+
+    if (table.stage !== 'waiting') {
+      scheduleAllInRunout(io, table);
+      scheduleActionTimer(io, table);
+      pipelinesRearmed++;
+    }
+  }
+
+  if (reason !== 'interval') {
+    console.log(`[HYGIENE:${reason}] tables=${tablesChecked} fixedLinks=${playerLinksFixed} pendingHandled=${pendingHandled} pipelinesRearmed=${pipelinesRearmed}`);
+  }
+  return { tablesChecked, playerLinksFixed, pendingHandled, pipelinesRearmed };
+}
+
 // ─── Start ────────────────────────────────────────────────────────────────────
 httpServer.listen(config.server.port, () => {
   console.log(`🚀 CryptoPoker server running on port ${config.server.port}`);
@@ -838,5 +899,13 @@ httpServer.listen(config.server.port, () => {
   console.log(`⛓️  Chain ID: ${config.chain.chainId}`);
   console.log(`💰 Buy-in fee: ${config.fees.buyInBps / 100}%  |  Winner fee: ${config.fees.winnerBps / 100}%`);
 });
+
+setInterval(() => {
+  try {
+    runHygieneSweep('interval');
+  } catch (err) {
+    console.error('[HYGIENE] sweep failed:', err.message);
+  }
+}, HYGIENE_INTERVAL_MS);
 
 export { app, io };

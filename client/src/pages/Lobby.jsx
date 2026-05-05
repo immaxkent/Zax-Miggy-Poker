@@ -510,13 +510,13 @@ function JoinUsdcGameModal({ onClose, onJoined, openGames = [], initialGameId = 
         </div>
       )}
       {(isCreator || isAlreadyInGame) && !finished && depositAmountNum > 0 && (
-        <button onClick={() => { navigate(`/game/${validGameId}`); onClose(); }} disabled={!connected}
+        <button onClick={() => { navigate(`/game/${validGameId}`, { state: { justJoined: true } }); onClose(); }}
           style={{
             width: '100%', padding: 12, borderRadius: 8, marginBottom: 12,
             background: `${G}18`, border: `1px solid ${G}40`, color: G,
-            fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: connected ? 1 : 0.5,
+            fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: 1,
           }}>
-          {connected ? '🃏 GO TO TABLE' : '⏳ CONNECTING...'}
+          🃏 GO TO TABLE
         </button>
       )}
       <PrimaryBtn onClick={handleJoin} disabled={!canJoin || step !== 'input' || wrongNetwork}
