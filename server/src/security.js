@@ -194,6 +194,49 @@ export async function signAndSubmitCloseGame(gameId, winnerAddress) {
   return { txHash: tx.hash, receipt };
 }
 
+// ─── AgenticRankings contract — post-game stat updates ───────────────────────
+
+const RANKINGS_ABI = [
+  'function updateRankings(uint256 gameId) external',
+  'function recordCancellation(uint256 gameId) external',
+];
+
+let _rankings = null;
+
+function getRankings() {
+  if (_rankings) return _rankings;
+  const addr = config.chain.agenticRankingsAddress;
+  if (!addr) return null;
+  const provider = new ethers.JsonRpcProvider(config.chain.rpcUrl);
+  const connected = new ethers.Wallet(config.server.signerPrivKey, provider);
+  _rankings = new ethers.Contract(addr, RANKINGS_ABI, connected);
+  return _rankings;
+}
+
+export async function submitUpdateRankings(gameId) {
+  const rankings = getRankings();
+  if (!rankings) {
+    console.warn(`⚠️  AGENTIC_RANKINGS_ADDRESS not set — skipping rankings update for game ${gameId}`);
+    return;
+  }
+  const tx = await rankings.updateRankings(BigInt(gameId));
+  const receipt = await tx.wait();
+  console.log(`📊 updateRankings(${gameId}) mined: ${tx.hash}`);
+  return { txHash: tx.hash, receipt };
+}
+
+export async function submitRecordCancellation(gameId) {
+  const rankings = getRankings();
+  if (!rankings) {
+    console.warn(`⚠️  AGENTIC_RANKINGS_ADDRESS not set — skipping cancellation record for game ${gameId}`);
+    return;
+  }
+  const tx = await rankings.recordCancellation(BigInt(gameId));
+  const receipt = await tx.wait();
+  console.log(`📊 recordCancellation(${gameId}) mined: ${tx.hash}`);
+  return { txHash: tx.hash, receipt };
+}
+
 export async function getCloseGameQuote(gameId) {
   const vault = getVault();
   if (!vault) throw new Error('ZAX_MIGGY_VAULT_ADDRESS not configured — cannot quote closeGame payout');

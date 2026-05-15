@@ -42,8 +42,9 @@ export const config = {
       tokenAddress:    process.env.TOKEN_ADDRESS,
       vaultAddress:    process.env.VAULT_ADDRESS,
       tokenDecimals:   Number(process.env.TOKEN_DECIMALS || 18),
-      usdcAddress:     process.env.USDC_ADDRESS || null,
-      zaxMiggyVaultAddress: process.env.ZAX_MIGGY_VAULT_ADDRESS || null,
+      usdcAddress:           process.env.USDC_ADDRESS || null,
+      zaxMiggyVaultAddress:  process.env.ZAX_MIGGY_VAULT_ADDRESS || null,
+      agenticRankingsAddress: process.env.AGENTIC_RANKINGS_ADDRESS || null,
     };
   })(),
 

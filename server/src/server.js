@@ -33,6 +33,8 @@ import {
   signAndSubmitCancelGame,
   signAndSubmitCloseGame,
   getCloseGameQuote,
+  submitUpdateRankings,
+  submitRecordCancellation,
 } from './security.js';
 import { PokerTable } from './poker-engine.js';
 
@@ -42,6 +44,7 @@ validateConfig();
 // ─── In-memory stores (replace with Redis/DB for multi-instance) ──────────────
 const players = new Map();  // address → { id, chips, tableId, nonce }
 const tables  = new Map();  // tableId → PokerTable
+let spectateNsp = null;     // set after io is created; used by emitGameStateToAllAtTable
 const usdcStacks = new Map();  // tableId → Map<playerId, chips> (stack when they left, for rejoin)
 const terminatedTables = new Set();  // tableIds that have been terminated (blocks rejoin)
 const runoutTimers = new Map(); // tableId -> timeout for all-in runout pacing
@@ -199,6 +202,21 @@ app.get('/tables', requireApiKey, (_, res) => {
   res.json(list);
 });
 
+// ── Public games list (no auth — used by agent discovery and spectator lobby) ──
+app.get('/api/games', (_, res) => {
+  const list = Array.from(tables.entries())
+    .filter(([id]) => id.startsWith('usdc-'))
+    .map(([id, t]) => ({
+      tableId:          id,
+      gameId:           Number(id.replace('usdc-', '')),
+      playerCount:      t.players.length,
+      maxSeats:         t.config.maxSeats,
+      stage:            t.stage,
+      depositAmountUsdc: t.depositAmountUsdc ?? null,
+    }));
+  res.json(list);
+});
+
 app.post('/ops/hygiene', requireApiKey, (_, res) => {
   const report = runHygieneSweep('manual');
   res.json({ ok: true, report });
@@ -270,7 +288,7 @@ io.on('connection', (socket) => {
   });
 
   // ── Join USDC game table (on-chain game → server table for gameplay) ─────────
-  socket.on('joinUsdcTable', ({ gameId, creatorAddress }, ack) => {
+  socket.on('joinUsdcTable', ({ gameId, creatorAddress, depositAmount }, ack) => {
     try {
       const player = players.get(playerId);
       if (!player) return ack?.({ error: 'NOT_AUTHENTICATED' });
@@ -299,6 +317,7 @@ io.on('connection', (socket) => {
           minPlayers: usdcStake.minPlayers || config.tables.minPlayersToStart,
         }, tableId);
         tables.set(tableId, table);
+        if (depositAmount) table.depositAmountUsdc = depositAmount;
         // Use the on-chain creator as the authoritative host so connection order doesn't matter
         table.hostId = creatorAddress ? creatorAddress.toLowerCase() : null;
         table.gameStarted = false;
@@ -425,6 +444,9 @@ io.on('connection', (socket) => {
       if (isUsdc) {
         const gameId = tableId.replace('usdc-', '');
         await signAndSubmitCancelGame(gameId);
+        submitRecordCancellation(gameId).catch(err =>
+          console.error(`📊 recordCancellation(${gameId}) failed:`, err.message)
+        );
       }
 
       // Block any future rejoins for this table
@@ -520,6 +542,13 @@ function emitGameStateToAllAtTable(io, table, context = '') {
     console.warn(`[${table.id}] ${context} gameState NOT delivered to: ${missed.map((m) => m.slice(0, 10)).join(', ')}`);
   } else if (context) {
     console.log(`[${table.id}] ${context} gameState -> ${delivered.size} seated player(s)`);
+  }
+
+  // Push redacted state to spectators (cards null unless showdown — handled by toPublicState)
+  if (spectateNsp) {
+    spectateNsp
+      .to(`spectators-${table.id}`)
+      .emit('spectatorState', enrichState(table, table.toPublicState('__spectator__'), '__spectator__'));
   }
 }
 
@@ -659,6 +688,17 @@ function handlePendingHandComplete(io, table, tableId) {
     holeCards:  hc.holeCards,
     verify:     hc.verify,
   });
+
+  // Full reveal for spectators — showdown cards are public info
+  if (spectateNsp) {
+    spectateNsp.to(`spectators-${tableId}`).emit('spectatorHandComplete', {
+      handNumber: hc.handNumber,
+      results:    hc.results,
+      community:  hc.community,
+      holeCards:  hc.holeCards,
+    });
+  }
+
   issueWinnerVouchers(io, hc.results, tableId);
 
   // Auto-finish USDC game when a player is busted (0 chips)
@@ -694,6 +734,9 @@ function handlePendingHandComplete(io, table, tableId) {
           for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
               const mined = await signAndSubmitCloseGame(gameId, winner.id);
+              submitUpdateRankings(gameId).catch(err =>
+                console.error(`📊 updateRankings(${gameId}) failed:`, err.message)
+              );
               const settlement = {
                 gameId: Number(gameId),
                 winner: winner.id,
@@ -891,6 +934,27 @@ function runHygieneSweep(reason = 'interval') {
   }
   return { tablesChecked, playerLinksFixed, pendingHandled, pipelinesRearmed };
 }
+
+// ─── Spectate namespace (API key only — no JWT, no seat) ─────────────────────
+spectateNsp = io.of('/spectate');
+
+spectateNsp.use((socket, next) => {
+  const { apiKey } = socket.handshake.auth;
+  if (!apiKey || apiKey !== config.server.apiKey) return next(new Error('INVALID_API_KEY'));
+  next();
+});
+
+spectateNsp.on('connection', (socket) => {
+  socket.on('spectate', ({ gameId }, ack) => {
+    const tableId = `usdc-${gameId}`;
+    socket.join(`spectators-${tableId}`);
+    const table = tables.get(tableId);
+    if (table) {
+      socket.emit('spectatorState', enrichState(table, table.toPublicState('__spectator__'), '__spectator__'));
+    }
+    ack?.({ ok: true, found: !!table });
+  });
+});
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 httpServer.listen(config.server.port, () => {
