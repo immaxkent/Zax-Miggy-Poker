@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAccount, useWriteContract, useReadContract, useReadContracts } from 'wagmi';
 import { waitForTransactionReceipt } from '@wagmi/core';
 import { parseUnits, formatUnits } from 'viem';
@@ -604,6 +604,25 @@ export default function Lobby({ token, address }) {
     }).filter(Boolean).filter(g => !g.finished && g.players < 8);
   }, [allGamesRaw]);
 
+  // ── Live server-side games (for Watch buttons + in-progress badge) ───────────
+  const [liveGames, setLiveGames] = useState({});
+
+  useEffect(() => {
+    async function fetchLiveGames() {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/games`);
+        if (!res.ok) return;
+        const list = await res.json();
+        const map = {};
+        list.forEach(g => { map[g.gameId] = g; });
+        setLiveGames(map);
+      } catch { /* server may not be reachable */ }
+    }
+    fetchLiveGames();
+    const interval = setInterval(fetchLiveGames, 8000);
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     async function fetchTables() {
       try {
@@ -776,10 +795,17 @@ export default function Lobby({ token, address }) {
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; e.currentTarget.style.transform = 'none'; }}
                   onClick={() => { setJoinUsdcInitialId(game.id); setShowJoinUsdc(true); }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <div style={{
-                      fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', color: G,
-                      background: `${G}15`, border: `1px solid ${G}30`, padding: '2px 8px', borderRadius: 4,
-                    }}>OPEN · {game.players}/8</div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <div style={{
+                        fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', color: G,
+                        background: `${G}15`, border: `1px solid ${G}30`, padding: '2px 8px', borderRadius: 4,
+                      }}>OPEN · {game.players}/8</div>
+                      {liveGames[game.id] && liveGames[game.id].stage !== 'waiting' && (
+                        <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', color: '#a855f7', background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)', padding: '2px 8px', borderRadius: 4 }}>
+                          LIVE
+                        </div>
+                      )}
+                    </div>
                     <div style={{ color: '#334155', fontSize: 10, fontFamily: 'Space Mono, monospace' }}>#{game.id}</div>
                   </div>
                   <div style={{ color: '#fff', fontWeight: 800, fontSize: 15, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 14 }}>
@@ -797,15 +823,28 @@ export default function Lobby({ token, address }) {
                       </div>
                     </div>
                   </div>
-                  <button
-                    onClick={e => { e.stopPropagation(); console.log('[LOBBY] JOIN TABLE card button — gameId:', game.id); setJoinUsdcInitialId(game.id); setShowJoinUsdc(true); }}
-                    style={{
-                      width: '100%', marginTop: 14, padding: '9px', borderRadius: 7,
-                      background: `${G}18`, border: `1px solid ${G}40`, color: G,
-                      fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', cursor: 'pointer',
-                    }}>
-                    JOIN TABLE ↗
-                  </button>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                    <button
+                      onClick={e => { e.stopPropagation(); setJoinUsdcInitialId(game.id); setShowJoinUsdc(true); }}
+                      style={{
+                        flex: 1, padding: '9px', borderRadius: 7,
+                        background: `${G}18`, border: `1px solid ${G}40`, color: G,
+                        fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', cursor: 'pointer',
+                      }}>
+                      JOIN ↗
+                    </button>
+                    <Link
+                      to={`/spectate/${game.id}`}
+                      onClick={e => e.stopPropagation()}
+                      style={{
+                        padding: '9px 14px', borderRadius: 7, textDecoration: 'none',
+                        background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)',
+                        color: '#a855f7', fontSize: 12, fontWeight: 700, letterSpacing: '0.1em',
+                        display: 'flex', alignItems: 'center', gap: 4,
+                      }}>
+                      👁 WATCH
+                    </Link>
+                  </div>
                 </div>
               ))}
             </div>

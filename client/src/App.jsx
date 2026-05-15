@@ -8,10 +8,11 @@ import '@rainbow-me/rainbowkit/styles.css';
 import { wagmiConfig, SERVER_URL } from './utils/web3Config';
 import { useAuth }     from './hooks/useAuth';
 import { GameProvider, useGame } from './context/GameContext';
-import Lobby      from './pages/Lobby';
-import PokerTable from './components/PokerTable';
-import GameRoute  from './components/GameRoute';
-import VictoryModal from './components/VictoryModal';
+import Lobby         from './pages/Lobby';
+import PokerTable    from './components/PokerTable';
+import GameRoute     from './components/GameRoute';
+import VictoryModal  from './components/VictoryModal';
+import SpectateTable from './pages/SpectateTable';
 
 const queryClient = new QueryClient();
 
@@ -520,6 +521,9 @@ function AppRoutes() {
               ? <Navigate to="/" replace />
               : <GameRoute />
           } />
+
+          {/* Spectate — no auth required */}
+          <Route path="/spectate/:gameId" element={<SpectateTable />} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
