@@ -71,7 +71,7 @@ function Card({ card, hidden, size = 'md' }) {
   );
 }
 
-export default function SpectateTable() {
+export default function SpectateTable({ token, ownerAddress }) {
   const { gameId } = useParams();
   const [state, setState]           = useState(null);
   const [connected, setConnected]   = useState(false);
@@ -79,6 +79,7 @@ export default function SpectateTable() {
   const [handResult, setHandResult] = useState(null);
   const [handHistory, setHandHistory] = useState([]);
   const [size, setSize]             = useState({ w: 800, h: 460 });
+  const [ownerBotId, setOwnerBotId] = useState(null);  // set when server sends personalized state
   const tableRef = useRef(null);
   const socketRef = useRef(null);
 
@@ -99,8 +100,10 @@ export default function SpectateTable() {
   // Socket connection
   useEffect(() => {
     if (!gameId) return;
+    const auth = { apiKey: SERVER_API_KEY };
+    if (token) auth.token = token;
     const socket = io(`${SOCKET_URL}/spectate`, {
-      auth: { apiKey: SERVER_API_KEY },
+      auth,
       transports: ['websocket'],
       reconnection: true,
       reconnectionDelay: 2000,
@@ -119,6 +122,13 @@ export default function SpectateTable() {
     socket.on('spectatorState', (s) => {
       setState(s);
       setNotFound(false);
+      // Detect owner mode: server sends state with bot's holeCards visible
+      if (ownerAddress && !ownerBotId) {
+        const botPlayer = s?.players?.find(p =>
+          p.holeCards?.length > 0 && p.id?.toLowerCase() !== ownerAddress.toLowerCase()
+        );
+        if (botPlayer) setOwnerBotId(botPlayer.id?.toLowerCase());
+      }
     });
 
     socket.on('spectatorHandComplete', (result) => {
@@ -142,7 +152,7 @@ export default function SpectateTable() {
     });
 
     return () => { socket.disconnect(); socketRef.current = null; };
-  }, [gameId]);
+  }, [gameId, token]);
 
   // Table geometry (identical to PokerTable)
   const { w, h } = size;
@@ -294,10 +304,14 @@ export default function SpectateTable() {
               const grad = avatarGrad(player.address);
               const init = initial(player.address);
               const revealedCards = handResult?.holeCards?.[player.id] || handResult?.holeCards?.[player.address] || null;
+              // Owner can see their bot's live hole cards from the personalized state
+              const liveCards = player.holeCards?.length > 0 ? player.holeCards : player.cards?.length > 0 ? player.cards : null;
+              const showCards = revealedCards?.length > 0 ? revealedCards : liveCards;
+              const isOwnerBot = ownerBotId && player.id?.toLowerCase() === ownerBotId;
 
               return (
                 <div key={player.id || i}>
-                  {/* Hole cards — face-down, or revealed at showdown */}
+                  {/* Hole cards — face-down normally, live for owner's bot */}
                   {(player.cardCount > 0 || player.cards?.length > 0) && !player.folded && (
                     <div style={{
                       position: 'absolute',
@@ -307,8 +321,8 @@ export default function SpectateTable() {
                       display: 'flex', gap: 3, zIndex: 19,
                       pointerEvents: 'none',
                     }}>
-                      {revealedCards?.length > 0
-                        ? revealedCards.map((c, ci) => <Card key={ci} card={c} size="sm" />)
+                      {showCards?.length > 0
+                        ? showCards.map((c, ci) => <Card key={ci} card={c} size="sm" />)
                         : [...Array(player.cardCount || 2)].map((_, ci) => <Card key={ci} hidden size="sm" />)
                       }
                     </div>
@@ -337,6 +351,9 @@ export default function SpectateTable() {
                     )}
                     {player.allIn && !player.folded && (
                       <div style={{ position: 'absolute', bottom: -10, left: '50%', transform: 'translateX(-50%)', background: '#dc2626', color: '#fff', fontSize: 7, fontWeight: 800, padding: '1px 5px', borderRadius: 3, whiteSpace: 'nowrap', letterSpacing: '0.06em' }}>ALL-IN</div>
+                    )}
+                    {isOwnerBot && (
+                      <div style={{ position: 'absolute', top: -5, left: -5, width: 16, height: 16, borderRadius: '50%', background: G, border: `1.5px solid ${G}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, boxShadow: `0 0 8px ${G}` }}>🤖</div>
                     )}
                   </div>
 
@@ -374,10 +391,14 @@ export default function SpectateTable() {
             minHeight: 60,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#a855f7', boxShadow: '0 0 8px #a855f7', animation: 'pulse 2s infinite' }} />
-              <span style={{ color: '#a855f7', fontSize: 12, fontWeight: 700, letterSpacing: '0.16em' }}>SPECTATING LIVE</span>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: ownerBotId ? G : '#a855f7', boxShadow: `0 0 8px ${ownerBotId ? G : '#a855f7'}` }} />
+              <span style={{ color: ownerBotId ? G : '#a855f7', fontSize: 12, fontWeight: 700, letterSpacing: '0.16em' }}>
+                {ownerBotId ? 'OWNER VIEW' : 'SPECTATING LIVE'}
+              </span>
               <span style={{ color: '#1e3050' }}>·</span>
-              <span style={{ color: '#334155', fontSize: 11 }}>CARDS HIDDEN UNTIL SHOWDOWN</span>
+              <span style={{ color: '#334155', fontSize: 11 }}>
+                {ownerBotId ? `BOT CARDS VISIBLE · ${ownerBotId.slice(0, 6)}…${ownerBotId.slice(-4)}` : 'CARDS HIDDEN UNTIL SHOWDOWN'}
+              </span>
             </div>
             <div style={{ color: '#334155', fontSize: 11, fontFamily: 'Space Mono,monospace' }}>
               HAND #{state?.handNumber || '—'}

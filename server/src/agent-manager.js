@@ -24,7 +24,7 @@ const MAX_OUTPUT_LINES = 200;
  * @param {object} params.serverConfig       Server config (urls, keys)
  * @returns {{ ok: boolean, error?: string }}
  */
-export function spawnAgent({ ownerAddress, keystoreJson, keystorePassword, config, gameId, serverConfig }) {
+export function spawnAgent({ ownerAddress, botAddress, keystoreJson, keystorePassword, config, gameId, serverConfig }) {
   if (activeAgents.has(ownerAddress)) {
     return { ok: false, error: 'Agent already running for this address' };
   }
@@ -56,6 +56,7 @@ export function spawnAgent({ ownerAddress, keystoreJson, keystorePassword, confi
     process: proc,
     gameId,
     ownerAddress,
+    botAddress: botAddress ? botAddress.toLowerCase() : null,
     startedAt: Date.now(),
     output: [],
     status: 'running',
@@ -102,6 +103,7 @@ export function getAgentStatus(ownerAddress) {
   if (!entry) return null;
   return {
     ownerAddress: entry.ownerAddress,
+    botAddress: entry.botAddress,
     gameId: entry.gameId,
     startedAt: entry.startedAt,
     status: entry.status,

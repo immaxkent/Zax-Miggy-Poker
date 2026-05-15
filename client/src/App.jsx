@@ -12,7 +12,9 @@ import Lobby         from './pages/Lobby';
 import PokerTable    from './components/PokerTable';
 import GameRoute     from './components/GameRoute';
 import VictoryModal  from './components/VictoryModal';
-import SpectateTable from './pages/SpectateTable';
+import SpectateTable  from './pages/SpectateTable';
+import BotConfig      from './pages/BotConfig';
+import ActivateAgent  from './pages/ActivateAgent';
 
 const queryClient = new QueryClient();
 
@@ -26,8 +28,9 @@ function NavBar({ connected, onlinePlayers, authed }) {
 
   const links = [{ label: 'HOME', to: '/', active: pathname === '/' }];
   const protectedLinks = [
-    { label: 'LOBBY', to: '/lobby', active: pathname === '/lobby' },
-    { label: 'TABLE', to: '/lobby', active: pathname.startsWith('/game') },
+    { label: 'LOBBY',    to: '/lobby',           active: pathname === '/lobby' },
+    { label: 'TABLE',    to: '/lobby',            active: pathname.startsWith('/game') },
+    { label: 'BOTS',     to: '/bots',             active: pathname === '/bots' || pathname === '/activate-agent' },
   ];
 
   return (
@@ -522,8 +525,18 @@ function AppRoutes() {
               : <GameRoute />
           } />
 
-          {/* Spectate — no auth required */}
-          <Route path="/spectate/:gameId" element={<SpectateTable />} />
+          {/* Spectate — no auth required; token passed for bot-owner hole card visibility */}
+          <Route path="/spectate/:gameId" element={<SpectateTable token={token} ownerAddress={address?.toLowerCase()} />} />
+
+          {/* Bot configuration — no auth required to browse presets */}
+          <Route path="/bots" element={<BotConfig />} />
+
+          {/* Bot activation — auth required */}
+          <Route path="/activate-agent" element={
+            !address ? <Navigate to="/" replace /> :
+            !authed  ? <Navigate to="/" replace /> :
+            <ActivateAgent token={token} address={address} />
+          } />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

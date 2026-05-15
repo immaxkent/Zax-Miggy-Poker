@@ -23,6 +23,7 @@ import {
   requireApiKey,
   rateLimiter,
   issueJWT,
+  verifyJWT,
   verifyMessage,
   createChallenge,
   getChallenge,
@@ -46,6 +47,8 @@ validateConfig();
 const players = new Map();  // address → { id, chips, tableId, nonce }
 const tables  = new Map();  // tableId → PokerTable
 let spectateNsp = null;     // set after io is created; used by emitGameStateToAllAtTable
+// socketId → { ownerAddress, botPlayerId, tableId }  — bot owners watching their own bot
+const ownerSpectators = new Map();
 const usdcStacks = new Map();  // tableId → Map<playerId, chips> (stack when they left, for rejoin)
 const terminatedTables = new Set();  // tableIds that have been terminated (blocks rejoin)
 const runoutTimers = new Map(); // tableId -> timeout for all-in runout pacing
@@ -231,13 +234,14 @@ app.post('/agent/activate', requireApiKey, async (req, res) => {
     const payload = verifyJWT(auth);
     const ownerAddress = payload.sub;
 
-    const { keystoreJson, keystorePassword, config: botConfig, gameId } = req.body;
-    if (!keystoreJson || !keystorePassword || !gameId) {
+    const { keystoreJson, keystorePassword, config: botConfig, gameId, botAddress } = req.body;
+    if (!keystoreJson || !keystorePassword || gameId == null) {
       return res.status(400).json({ error: 'keystoreJson, keystorePassword, and gameId are required' });
     }
 
     const result = spawnAgent({
       ownerAddress,
+      botAddress: botAddress || null,
       keystoreJson,
       keystorePassword,
       config: botConfig || {},
@@ -617,11 +621,20 @@ function emitGameStateToAllAtTable(io, table, context = '') {
     console.log(`[${table.id}] ${context} gameState -> ${delivered.size} seated player(s)`);
   }
 
-  // Push redacted state to spectators (cards null unless showdown — handled by toPublicState)
+  // Push redacted state to all spectators (cards hidden until showdown)
   if (spectateNsp) {
     spectateNsp
       .to(`spectators-${table.id}`)
       .emit('spectatorState', enrichState(table, table.toPublicState('__spectator__'), '__spectator__'));
+
+    // Send personalized state to owner spectators (shows their bot's hole cards live)
+    for (const [socketId, os] of ownerSpectators) {
+      if (os.tableId !== table.id) continue;
+      const sock = spectateNsp.sockets.get(socketId);
+      if (sock) {
+        sock.emit('spectatorState', enrichState(table, table.toPublicState(os.botPlayerId), os.botPlayerId));
+      }
+    }
   }
 }
 
@@ -1008,12 +1021,19 @@ function runHygieneSweep(reason = 'interval') {
   return { tablesChecked, playerLinksFixed, pendingHandled, pipelinesRearmed };
 }
 
-// ─── Spectate namespace (API key only — no JWT, no seat) ─────────────────────
+// ─── Spectate namespace (API key required; JWT optional for owner bot visibility) ─
 spectateNsp = io.of('/spectate');
 
 spectateNsp.use((socket, next) => {
-  const { apiKey } = socket.handshake.auth;
+  const { apiKey, token } = socket.handshake.auth;
   if (!apiKey || apiKey !== config.server.apiKey) return next(new Error('INVALID_API_KEY'));
+  // Optionally decode JWT so owner can see their bot's cards
+  if (token) {
+    try {
+      const payload = verifyJWT(token);
+      socket.ownerAddress = payload.sub;
+    } catch { /* invalid token — proceed as anonymous spectator */ }
+  }
   next();
 });
 
@@ -1021,11 +1041,27 @@ spectateNsp.on('connection', (socket) => {
   socket.on('spectate', ({ gameId }, ack) => {
     const tableId = `usdc-${gameId}`;
     socket.join(`spectators-${tableId}`);
+
+    // Check if this authenticated owner has an active bot at this table
+    let botPlayerId = null;
+    if (socket.ownerAddress) {
+      const agentStatus = getAgentStatus(socket.ownerAddress);
+      if (agentStatus && agentStatus.gameId === Number(gameId) && agentStatus.botAddress) {
+        botPlayerId = agentStatus.botAddress;
+        ownerSpectators.set(socket.id, { ownerAddress: socket.ownerAddress, botPlayerId, tableId });
+      }
+    }
+
     const table = tables.get(tableId);
     if (table) {
-      socket.emit('spectatorState', enrichState(table, table.toPublicState('__spectator__'), '__spectator__'));
+      const viewAs = botPlayerId || '__spectator__';
+      socket.emit('spectatorState', enrichState(table, table.toPublicState(viewAs), viewAs));
     }
     ack?.({ ok: true, found: !!table });
+  });
+
+  socket.on('disconnect', () => {
+    ownerSpectators.delete(socket.id);
   });
 });
 
