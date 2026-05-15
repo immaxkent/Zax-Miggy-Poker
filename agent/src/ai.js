@@ -1,9 +1,10 @@
-import Anthropic from '@anthropic-ai/sdk';
-
 let _client = null;
 
-function getClient(apiKey) {
-  if (!_client) _client = new Anthropic({ apiKey });
+async function getClient(apiKey) {
+  if (!_client) {
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    _client = new Anthropic({ apiKey });
+  }
   return _client;
 }
 
@@ -16,7 +17,7 @@ function getClient(apiKey) {
  * @returns {Promise<{action: string, amount?: number, reasoning: string}>}
  */
 export async function decideAction(systemPrompt, decisionCtx, apiKey) {
-  const client = getClient(apiKey);
+  const client = await getClient(apiKey);
 
   const userMessage = JSON.stringify(decisionCtx, null, 2);
 
@@ -56,7 +57,7 @@ export function buildDecisionContext(gameState, playerId) {
   // Compute effective SPR (stack-to-pot ratio) for stack depth awareness
   const myChips = me?.chips ?? 0;
   const pot = gameState.pot ?? 1;
-  const spr = pot > 0 ? +(myChips / pot).toFixed(2) : 99;
+  const spr = (!me || pot === 0) ? 99 : +(myChips / pot).toFixed(2);
 
   return {
     holeCards: me?.holeCards ?? [],

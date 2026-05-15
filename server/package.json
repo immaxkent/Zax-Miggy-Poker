@@ -3,23 +3,26 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start":   "node src/server.js",
+    "start": "node src/server.js",
     "start:server": "node src/server.js",
     "start:aws": "node src/start.js",
-    "dev":     "npx nodemon src/server.js",
-    "test":    "node --test test/poker-engine.test.js"
+    "dev": "npx nodemon src/server.js",
+    "test": "node --test test/poker-engine.test.js",
+    "test:integration": "node --test test/server-integration.test.js",
+    "test:all": "node --test test/poker-engine.test.js && node --test test/server-integration.test.js"
   },
   "dependencies": {
     "@aws-sdk/client-secrets-manager": "^3.700.0",
-    "cors":        "^2.8.5",
-    "dotenv":      "^16.4.5",
-    "ethers":      "^6.11.1",
-    "express":     "^4.19.2",
-    "helmet":      "^7.1.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.11.1",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
-    "socket.io":   "^4.7.5"
+    "socket.io": "^4.7.5"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "nodemon": "^3.1.0",
+    "socket.io-client": "^4.8.3"
   }
 }

@@ -6,7 +6,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "generate-wallet": "node scripts/generate-wallet.js"
+    "generate-wallet": "node scripts/generate-wallet.js",
+    "test": "node --test test/strategy.test.js test/ai.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
