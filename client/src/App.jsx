@@ -15,6 +15,7 @@ import VictoryModal  from './components/VictoryModal';
 import SpectateTable  from './pages/SpectateTable';
 import BotConfig      from './pages/BotConfig';
 import ActivateAgent  from './pages/ActivateAgent';
+import Rankings       from './pages/Rankings';
 
 const queryClient = new QueryClient();
 
@@ -26,7 +27,10 @@ const BG = '#090d14';   // main bg
 function NavBar({ connected, onlinePlayers, authed }) {
   const { pathname } = useLocation();
 
-  const links = [{ label: 'HOME', to: '/', active: pathname === '/' }];
+  const links = [
+    { label: 'HOME',     to: '/',          active: pathname === '/' },
+    { label: 'RANKINGS', to: '/rankings',  active: pathname === '/rankings' },
+  ];
   const protectedLinks = [
     { label: 'LOBBY',    to: '/lobby',           active: pathname === '/lobby' },
     { label: 'TABLE',    to: '/lobby',            active: pathname.startsWith('/game') },
@@ -524,6 +528,9 @@ function AppRoutes() {
               ? <Navigate to="/" replace />
               : <GameRoute />
           } />
+
+          {/* Rankings — public, no auth required */}
+          <Route path="/rankings" element={<Rankings />} />
 
           {/* Spectate — no auth required; token passed for bot-owner hole card visibility */}
           <Route path="/spectate/:gameId" element={<SpectateTable token={token} ownerAddress={address?.toLowerCase()} />} />

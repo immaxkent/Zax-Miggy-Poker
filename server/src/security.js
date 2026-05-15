@@ -199,6 +199,15 @@ export async function signAndSubmitCloseGame(gameId, winnerAddress) {
 const RANKINGS_ABI = [
   'function updateRankings(uint256 gameId) external',
   'function recordCancellation(uint256 gameId) external',
+  'function getStats(address player) view returns (tuple(uint256 wins, uint256 gamesPlayed, uint256 totalWon, uint256 totalLost))',
+  'function getStatsBatch(address[] addresses) view returns (tuple(uint256 wins, uint256 gamesPlayed, uint256 totalWon, uint256 totalLost)[])',
+  'event RankingsUpdated(uint256 indexed gameId, address indexed winner, uint8 playerCount)',
+  'event CancellationRecorded(uint256 indexed gameId, uint8 playerCount)',
+];
+
+const VAULT_READ_ABI = [
+  'function getGame(uint256 gameId) view returns (address[8] players, uint8 playerCount, uint256 depositAmount, uint256 createdAt, bool finished, address winner)',
+  'function nextGameId() view returns (uint256)',
 ];
 
 let _rankings = null;
@@ -211,6 +220,97 @@ function getRankings() {
   const connected = new ethers.Wallet(config.server.signerPrivKey, provider);
   _rankings = new ethers.Contract(addr, RANKINGS_ABI, connected);
   return _rankings;
+}
+
+// ─── Leaderboard — scan events → collect addresses → batch read stats ─────────
+
+let _leaderboardCache = null;
+let _leaderboardCachedAt = 0;
+const LEADERBOARD_CACHE_MS = 30_000;
+
+export async function getLeaderboard() {
+  if (_leaderboardCache && Date.now() - _leaderboardCachedAt < LEADERBOARD_CACHE_MS) {
+    return _leaderboardCache;
+  }
+
+  const rankingsAddr = config.chain.agenticRankingsAddress;
+  const vaultAddr    = config.chain.zaxMiggyVaultAddress;
+  if (!rankingsAddr) return { entries: [], lastUpdated: null, error: 'Rankings contract not configured' };
+
+  const provider = new ethers.JsonRpcProvider(config.chain.rpcUrl);
+  const rankingsContract = new ethers.Contract(rankingsAddr, RANKINGS_ABI, provider);
+
+  // Collect gameIds from all processed games
+  const [updatedLogs, cancelledLogs] = await Promise.all([
+    rankingsContract.queryFilter(rankingsContract.filters.RankingsUpdated(), 0, 'latest'),
+    rankingsContract.queryFilter(rankingsContract.filters.CancellationRecorded(), 0, 'latest'),
+  ]);
+
+  const gameIds = new Set([
+    ...updatedLogs.map(l => Number(l.args.gameId)),
+    ...cancelledLogs.map(l => Number(l.args.gameId)),
+  ]);
+
+  // Collect all unique player addresses from vault game data
+  const uniqueAddresses = new Set();
+
+  if (vaultAddr && gameIds.size > 0) {
+    const vaultContract = new ethers.Contract(vaultAddr, VAULT_READ_ABI, provider);
+    await Promise.all([...gameIds].map(async (gameId) => {
+      try {
+        const game = await vaultContract.getGame(BigInt(gameId));
+        const playerCount = Number(game.playerCount ?? game[1]);
+        const players = game.players ?? game[0];
+        for (let i = 0; i < playerCount; i++) {
+          const addr = players[i];
+          if (addr && addr !== ethers.ZeroAddress) uniqueAddresses.add(addr.toLowerCase());
+        }
+      } catch {
+        // skip if game not found
+      }
+    }));
+  } else {
+    // Fallback: collect winners from events when vault unavailable
+    for (const log of updatedLogs) {
+      const winner = log.args.winner;
+      if (winner && winner !== ethers.ZeroAddress) uniqueAddresses.add(winner.toLowerCase());
+    }
+  }
+
+  if (uniqueAddresses.size === 0) {
+    _leaderboardCache = { entries: [], lastUpdated: new Date().toISOString() };
+    _leaderboardCachedAt = Date.now();
+    return _leaderboardCache;
+  }
+
+  const addressList = [...uniqueAddresses];
+  const rawStats = await rankingsContract.getStatsBatch(addressList);
+
+  const entries = addressList
+    .map((address, i) => {
+      const s = rawStats[i];
+      const wins        = Number(s.wins ?? s[0]);
+      const gamesPlayed = Number(s.gamesPlayed ?? s[1]);
+      const totalWon    = BigInt(s.totalWon  ?? s[2]);
+      const totalLost   = BigInt(s.totalLost ?? s[3]);
+      return {
+        address,
+        wins,
+        gamesPlayed,
+        totalWon:   totalWon.toString(),
+        totalLost:  totalLost.toString(),
+        netProfit:  (totalWon - totalLost).toString(),
+      };
+    })
+    .filter(e => e.gamesPlayed > 0)
+    .sort((a, b) => {
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      return Number(BigInt(b.totalWon) - BigInt(a.totalWon));
+    });
+
+  _leaderboardCache = { entries, lastUpdated: new Date().toISOString() };
+  _leaderboardCachedAt = Date.now();
+  return _leaderboardCache;
 }
 
 export async function submitUpdateRankings(gameId) {

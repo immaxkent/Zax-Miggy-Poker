@@ -36,6 +36,7 @@ import {
   getCloseGameQuote,
   submitUpdateRankings,
   submitRecordCancellation,
+  getLeaderboard,
 } from './security.js';
 import { PokerTable } from './poker-engine.js';
 import { spawnAgent, killAgent, getAgentStatus } from './agent-manager.js';
@@ -204,6 +205,17 @@ app.get('/tables', requireApiKey, (_, res) => {
     stage:    t.stage,
   }));
   res.json(list);
+});
+
+// ── Public rankings leaderboard (no auth — reads from AgenticRankings contract) ─
+app.get('/api/rankings', async (_, res) => {
+  try {
+    const data = await getLeaderboard();
+    res.json(data);
+  } catch (err) {
+    console.error('[rankings] getLeaderboard error:', err.message);
+    res.json({ entries: [], lastUpdated: null, error: err.message });
+  }
 });
 
 // ── Public games list (no auth — used by agent discovery and spectator lobby) ──
