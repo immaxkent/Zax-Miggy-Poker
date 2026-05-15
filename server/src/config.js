@@ -28,6 +28,8 @@ export const config = {
     // API key clients must send in X-Poker-Key header
     apiKey:         process.env.SERVER_API_KEY,                // REQUIRED
     nodeEnv:        process.env.NODE_ENV         || 'development',
+    serverUrl:      process.env.SERVER_URL        || null,
+    socketUrl:      process.env.SOCKET_URL        || process.env.SERVER_URL || null,
   },
 
   // ── Blockchain ───────────────────────────────────────────────────────────────

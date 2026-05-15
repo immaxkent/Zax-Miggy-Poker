@@ -37,6 +37,7 @@ import {
   submitRecordCancellation,
 } from './security.js';
 import { PokerTable } from './poker-engine.js';
+import { spawnAgent, killAgent, getAgentStatus } from './agent-manager.js';
 
 // ─── Validate env on boot ─────────────────────────────────────────────────────
 validateConfig();
@@ -215,6 +216,78 @@ app.get('/api/games', (_, res) => {
       depositAmountUsdc: t.depositAmountUsdc ?? null,
     }));
   res.json(list);
+});
+
+// ── Agent management endpoints ────────────────────────────────────────────────
+
+// POST /agent/activate — spawn a bot process for the calling wallet owner
+// Body: { keystoreJson, keystorePassword, config, gameId }
+// Auth: JWT (owner must be authenticated via MetaMask)
+app.post('/agent/activate', requireApiKey, async (req, res) => {
+  try {
+    const auth = req.headers.authorization?.replace('Bearer ', '');
+    if (!auth) return res.status(401).json({ error: 'No token' });
+    const { verifyJWT } = await import('./security.js');
+    const payload = verifyJWT(auth);
+    const ownerAddress = payload.sub;
+
+    const { keystoreJson, keystorePassword, config: botConfig, gameId } = req.body;
+    if (!keystoreJson || !keystorePassword || !gameId) {
+      return res.status(400).json({ error: 'keystoreJson, keystorePassword, and gameId are required' });
+    }
+
+    const result = spawnAgent({
+      ownerAddress,
+      keystoreJson,
+      keystorePassword,
+      config: botConfig || {},
+      gameId: Number(gameId),
+      serverConfig: {
+        serverUrl:       config.server.serverUrl || `http://localhost:${config.server.port}`,
+        socketUrl:       config.server.socketUrl || `http://localhost:${config.server.port}`,
+        apiKey:          config.server.apiKey,
+        anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
+        rpcUrl:          config.chain.rpcUrl,
+        usdcAddress:     config.chain.usdcAddress,
+        vaultAddress:    config.chain.zaxMiggyVaultAddress,
+      },
+    });
+
+    if (!result.ok) return res.status(409).json({ error: result.error });
+    res.json({ ok: true, gameId: Number(gameId) });
+  } catch (err) {
+    console.error('Agent activate error:', err);
+    res.status(500).json({ error: 'Failed to activate agent' });
+  }
+});
+
+// GET /agent/status — poll running agent state + logs for the calling owner
+app.get('/agent/status', requireApiKey, async (req, res) => {
+  try {
+    const auth = req.headers.authorization?.replace('Bearer ', '');
+    if (!auth) return res.status(401).json({ error: 'No token' });
+    const { verifyJWT } = await import('./security.js');
+    const payload = verifyJWT(auth);
+    const status = getAgentStatus(payload.sub);
+    res.json(status ?? { status: 'none' });
+  } catch (err) {
+    res.status(500).json({ error: 'Status check failed' });
+  }
+});
+
+// DELETE /agent — kill the running agent for the calling owner
+app.delete('/agent', requireApiKey, async (req, res) => {
+  try {
+    const auth = req.headers.authorization?.replace('Bearer ', '');
+    if (!auth) return res.status(401).json({ error: 'No token' });
+    const { verifyJWT } = await import('./security.js');
+    const payload = verifyJWT(auth);
+    const result = killAgent(payload.sub);
+    if (!result.ok) return res.status(404).json({ error: result.error });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Kill agent failed' });
+  }
 });
 
 app.post('/ops/hygiene', requireApiKey, (_, res) => {
