@@ -55,13 +55,14 @@ function waitForHealth(baseUrl, timeoutMs = 15_000) {
 
 /**
  * @param {object} opts
- * @param {number} opts.port           — port to listen on
- * @param {string} opts.signerPrivKey  — private key matching vault's serverSigner address
- * @param {string} opts.anvilUrl       — JSON-RPC URL for anvil (e.g. http://127.0.0.1:18545)
- * @param {string} opts.vaultAddress   — deployed ZaxAndMiggyVault address
- * @param {string} opts.usdcAddress    — deployed MockUSDC address
+ * @param {number} opts.port                    — port to listen on
+ * @param {string} opts.signerPrivKey           — private key matching vault's serverSigner address
+ * @param {string} opts.anvilUrl                — JSON-RPC URL for anvil (e.g. http://127.0.0.1:18545)
+ * @param {string} opts.vaultAddress            — deployed ZaxAndMiggyVault address
+ * @param {string} opts.usdcAddress             — deployed MockUSDC address
+ * @param {string} [opts.agenticRankingsAddress] — deployed AgenticRankings address (optional)
  */
-export async function startServer({ port, signerPrivKey, anvilUrl, vaultAddress, usdcAddress }) {
+export async function startServer({ port, signerPrivKey, anvilUrl, vaultAddress, usdcAddress, agenticRankingsAddress }) {
   const env = {
     ...process.env,
     PORT:                   String(port),
@@ -72,6 +73,7 @@ export async function startServer({ port, signerPrivKey, anvilUrl, vaultAddress,
     ZAX_MIGGY_VAULT_ADDRESS: vaultAddress,
     USDC_ADDRESS:           usdcAddress,
     SIGNER_PRIVATE_KEY:     signerPrivKey,
+    AGENTIC_RANKINGS_ADDRESS: agenticRankingsAddress || '',
     ...TEST_SECRETS,
   };
 
