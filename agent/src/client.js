@@ -23,6 +23,8 @@ export function connectAndPlay({
   gameId,
   systemPrompt,
   anthropicApiKey,
+  depositAmountUsdc,
+  persona,
   onStateUpdate,
 }) {
   return new Promise((resolve, reject) => {
@@ -32,16 +34,38 @@ export function connectAndPlay({
     });
 
     let latestState = null;
-    let isMyTurn = false;
     let actionInFlight = false;
+    let hasAutoStarted = false;
+
+    // Called after every gameState update AND after each action completes.
+    // Ensures we never miss a turn due to the race where a new gameState
+    // arrives while actionInFlight=true.
+    async function checkAndAct() {
+      if (actionInFlight || !latestState) return;
+      const state = latestState;
+      const isOurTurn =
+        (state.currentPlayerId || '').toLowerCase() === playerId.toLowerCase() &&
+        state.stage !== 'waiting' &&
+        state.stage !== 'showdown';
+      if (!isOurTurn) return;
+      actionInFlight = true;
+      try {
+        await takeAction(socket, state, playerId, systemPrompt, anthropicApiKey, persona);
+      } finally {
+        actionInFlight = false;
+        // Re-check in case another gameState arrived while we were acting
+        await checkAndAct();
+      }
+    }
 
     socket.on('connect', () => {
       console.log(`[agent] Connected. Joining table usdc-${gameId}...`);
-      socket.emit('joinUsdcTable', { gameId }, (ack) => {
-        if (!ack?.ok) {
-          console.error('[agent] Failed to join table:', ack);
+      const joinPayload = { gameId, ...(depositAmountUsdc != null ? { depositAmount: depositAmountUsdc } : {}) };
+      socket.emit('joinUsdcTable', joinPayload, (ack) => {
+        if (ack?.error) {
+          console.error('[agent] Failed to join table:', ack.error);
           socket.disconnect();
-          reject(new Error(ack?.error || 'joinUsdcTable failed'));
+          reject(new Error(ack.error));
         } else {
           console.log(`[agent] Seated at usdc-${gameId}`);
         }
@@ -52,26 +76,35 @@ export function connectAndPlay({
       latestState = state;
       onStateUpdate?.(state);
 
-      // Detect when it's our turn to act
+      // Auto-start: if we're the host and enough players are seated
       if (
-        state.currentPlayerId === playerId &&
-        state.stage !== 'waiting' &&
-        state.stage !== 'showdown' &&
-        !actionInFlight
+        !hasAutoStarted &&
+        state.stage === 'waiting' &&
+        (state.hostId || '').toLowerCase() === playerId.toLowerCase() &&
+        (state.players?.length ?? 0) >= 2
       ) {
-        isMyTurn = true;
-        actionInFlight = true;
-        try {
-          await takeAction(socket, state, playerId, systemPrompt, anthropicApiKey);
-        } finally {
-          actionInFlight = false;
-          isMyTurn = false;
-        }
+        hasAutoStarted = true;
+        socket.emit('startGame', {}, (ack) => {
+          if (ack?.ok) {
+            console.log('[agent] Auto-started game as host.');
+          } else {
+            console.warn('[agent] Auto-start failed:', ack?.error);
+            hasAutoStarted = false;
+          }
+        });
+        return;
       }
+
+      await checkAndAct();
     });
 
     socket.on('handComplete', (data) => {
-      console.log(`[agent] Hand complete. Results:`, data.results?.map(r => `${r.playerId}: ${r.chips > 0 ? '+' : ''}${r.chips}`).join(', '));
+      if (!data?.results) return;
+      const summary = Object.entries(data.results)
+        .filter(([, r]) => r.won > 0)
+        .map(([id, r]) => `${id.slice(0, 8)}: +${r.won}`)
+        .join(', ');
+      console.log(`[agent] Hand complete. ${summary}`);
     });
 
     socket.on('tableTerminated', () => {
@@ -92,8 +125,9 @@ export function connectAndPlay({
   });
 }
 
-async function takeAction(socket, gameState, playerId, systemPrompt, anthropicApiKey) {
+async function takeAction(socket, gameState, playerId, systemPrompt, anthropicApiKey, persona) {
   const ctx = buildDecisionContext(gameState, playerId);
+  if (persona) ctx.persona = persona;
 
   console.log(`[agent] My turn — stage: ${ctx.stage}, pot: ${ctx.pot}, toCall: ${ctx.toCall}, myChips: ${ctx.myChips}`);
   console.log(`[agent] Hand: ${ctx.holeCards.join(' ')} | Community: ${ctx.community.join(' ') || '(none)'}`);
@@ -114,9 +148,15 @@ async function takeAction(socket, gameState, playerId, systemPrompt, anthropicAp
     payload.amount = Math.round(decision.amount);
   }
 
-  socket.emit('playerAction', payload, (ack) => {
-    if (!ack?.ok) {
-      console.error('[agent] Action rejected:', ack?.error);
-    }
+  await new Promise(resolve => {
+    socket.emit('playerAction', payload, (ack) => {
+      if (!ack?.ok) {
+        console.error('[agent] Action rejected:', ack?.error, '— retrying with safe fallback');
+        const safe = ctx.validActions.includes('check') ? 'check' : (ctx.validActions.includes('call') ? 'call' : 'fold');
+        socket.emit('playerAction', { action: safe }, resolve);
+      } else {
+        resolve();
+      }
+    });
   });
 }

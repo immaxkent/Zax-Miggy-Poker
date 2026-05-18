@@ -229,6 +229,21 @@ export class PokerTable {
     return chips; // return remaining chips to player account
   }
 
+  // ── Blind escalation ────────────────────────────────────────────────────────
+  _updateBlinds() {
+    const schedule = this.config.blindSchedule;
+    const interval = this.config.blindInterval ?? 10;
+    if (!schedule || schedule.length === 0) return;
+    const levelIdx = Math.min(
+      Math.floor((this.handNumber - 1) / interval),
+      schedule.length - 1
+    );
+    this.blindLevelIdx = levelIdx;
+    const level = schedule[levelIdx];
+    this.config.smallBlind = level.sb;
+    this.config.bigBlind   = level.bb;
+  }
+
   // ── Hand lifecycle ──────────────────────────────────────────────────────────
   startHand(clientSeed) {
     if (!this.canStart()) throw new Error('Not enough players');
@@ -237,6 +252,7 @@ export class PokerTable {
     this.pendingHandComplete = null;
     this.actedThisRound = new Set();
     this.handNumber++;
+    this._updateBlinds();
     this.stage      = 'preflop';
     this.community  = [];
     this.pot        = 0;
@@ -389,7 +405,14 @@ export class PokerTable {
     // first-to-act player folds mid-round.
     const allActed = active.every(p => this.actedThisRound.has((p.id || '').toLowerCase()));
 
-    // 0 or 1 active players left — advance if bets settled, otherwise give turn to the lone player
+    // If only 1 non-folded player remains, they win immediately (no further action needed)
+    const contenders = this.players.filter(p => !p.folded);
+    if (contenders.length <= 1) {
+      this._resolveShowdown();
+      return;
+    }
+
+    // 0 or 1 active players left (all-in runout) — advance if bets settled, otherwise give turn to the lone player
     if (active.length <= 1 && roundComplete) {
       this._nextStage();
       return;
@@ -534,15 +557,24 @@ export class PokerTable {
       contenders.length >= 2 &&
       actionable.length <= 1;
 
+    const blindLevel    = this.blindLevelIdx ?? 0;
+    const blindSchedule = this.config.blindSchedule;
+    const blindInterval = this.config.blindInterval ?? 10;
+    const nextBlindHand = blindSchedule && blindLevel < blindSchedule.length - 1
+      ? (blindLevel + 1) * blindInterval + 1
+      : null;
+
     return {
-      tableId:    this.id,
-      stage:      this.stage,
-      pot:        this.pot,
-      currentBet: this.currentBet,
-      community:  this.community,
-      dealerIdx:  this.dealerIdx,
-      actionIdx:  this.actionIdx,
-      config:     this.config,
+      tableId:      this.id,
+      stage:        this.stage,
+      pot:          this.pot,
+      currentBet:   this.currentBet,
+      community:    this.community,
+      dealerIdx:    this.dealerIdx,
+      actionIdx:    this.actionIdx,
+      config:       this.config,
+      blindLevel,
+      nextBlindHand,
       players: this.players.map((p, idx) => ({
         id:        p.id,
         address:   p.address,

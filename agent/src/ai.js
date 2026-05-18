@@ -8,6 +8,40 @@ async function getClient(apiKey) {
   return _client;
 }
 
+const PERSONA_WEIGHTS = {
+  gto:        { check: 5, call: 4, raise: 3, fold: 1 },
+  aggressive: { check: 2, call: 3, raise: 6, fold: 1 },
+  rock:       { check: 6, call: 4, raise: 1, fold: 3 },
+  maniac:     { check: 1, call: 2, raise: 8, fold: 1 },
+  trappy:     { check: 5, call: 5, raise: 2, fold: 1 },
+};
+
+// Weighted random action when no API key is present (sim/dev mode)
+function randomDecision(validActions, decisionCtx = {}) {
+  const weights = PERSONA_WEIGHTS[decisionCtx.persona] ?? PERSONA_WEIGHTS.gto;
+  const pool = validActions.flatMap(a => Array(weights[a] ?? 1).fill(a));
+  const action = pool[Math.floor(Math.random() * pool.length)];
+  let amount;
+  if (action === 'raise') {
+    const bigBlind   = decisionCtx.bigBlind ?? 20;
+    const currentBet = decisionCtx.currentBet ?? 0;
+    const toCall     = decisionCtx.toCall ?? 0;
+    const myChips    = decisionCtx.myChips ?? 9999;
+    // "raise to" level — engine expects the new total bet level, not chips-to-add
+    const myCurrentBet = currentBet - toCall;   // chips already committed this street
+    const allInLevel   = myCurrentBet + myChips; // max we can raise to
+    const minRaise     = currentBet + bigBlind;  // engine minimum raise-to level
+    if (allInLevel < minRaise) {
+      // Can't meet minimum raise — downgrade to call or check
+      const safe = validActions.includes('call') ? 'call' : (validActions.includes('check') ? 'check' : 'fold');
+      return { action: safe, reasoning: 'random (no API key)' };
+    }
+    const extra = Math.ceil(Math.random() * 3) * bigBlind;
+    amount = Math.min(minRaise + extra, allInLevel);
+  }
+  return { action, amount, reasoning: 'random (no API key)' };
+}
+
 /**
  * Ask Claude to decide the next poker action.
  *
@@ -17,6 +51,8 @@ async function getClient(apiKey) {
  * @returns {Promise<{action: string, amount?: number, reasoning: string}>}
  */
 export async function decideAction(systemPrompt, decisionCtx, apiKey) {
+  if (!apiKey) return randomDecision(decisionCtx.validActions ?? ['fold', 'call'], decisionCtx);
+
   const client = await getClient(apiKey);
 
   const userMessage = JSON.stringify(decisionCtx, null, 2);
@@ -51,8 +87,9 @@ export async function decideAction(systemPrompt, decisionCtx, apiKey) {
  * @returns {object}
  */
 export function buildDecisionContext(gameState, playerId) {
-  const me = gameState.players?.find(p => p.id === playerId);
-  const opponents = gameState.players?.filter(p => p.id !== playerId && p.active) ?? [];
+  const pid = (playerId || '').toLowerCase();
+  const me = gameState.players?.find(p => (p.id || '').toLowerCase() === pid);
+  const opponents = gameState.players?.filter(p => (p.id || '').toLowerCase() !== pid && p.active) ?? [];
 
   // Compute effective SPR (stack-to-pot ratio) for stack depth awareness
   const myChips = me?.chips ?? 0;
@@ -60,10 +97,11 @@ export function buildDecisionContext(gameState, playerId) {
   const spr = (!me || pot === 0) ? 99 : +(myChips / pot).toFixed(2);
 
   return {
-    holeCards: me?.holeCards ?? [],
+    holeCards: me?.cards ?? [],
     community: gameState.community ?? [],
     stage: gameState.stage ?? 'preflop',
     pot,
+    currentBet: gameState.currentBet ?? 0,
     toCall: gameState.toCall ?? 0,
     myChips,
     spr,

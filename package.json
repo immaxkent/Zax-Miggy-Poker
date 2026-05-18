@@ -10,6 +10,7 @@
     "start:server": "cd server && npm start",
     "deploy:base": "cd contracts && forge script script/DeployZaxMiggyBase.s.sol:DeployZaxMiggyBase --rpc-url ${BASE_RPC_URL:-https://mainnet.base.org} --broadcast --account deployMeta",
     "extract:base": "node scripts/extract-and-save.js base 1.0.1",
-    "redeploy": "node scripts/redeploy.js"
+    "redeploy": "node scripts/redeploy.js",
+    "sim": "cd e2e && node bot-sim.js"
   }
 }

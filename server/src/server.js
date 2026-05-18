@@ -399,6 +399,14 @@ io.on('connection', (socket) => {
           maxBuyIn:      1000,
           maxSeats:      8,
           minPlayers:    2,
+          blindSchedule: [
+            { sb: 5,   bb: 10  },
+            { sb: 10,  bb: 20  },
+            { sb: 25,  bb: 50  },
+            { sb: 50,  bb: 100 },
+            { sb: 100, bb: 200 },
+          ],
+          blindInterval: 10,
         };
         table = new PokerTable({
           ...usdcStake,
@@ -430,6 +438,8 @@ io.on('connection', (socket) => {
         }
       }
 
+      if (!table.hostId) table.hostId = playerId;
+
       const stackMap = usdcStacks.get(tableId) || new Map();
       const savedStack = stackMap.get(playerId);
       const startingChips = savedStack != null ? savedStack : 1000;
@@ -441,6 +451,7 @@ io.on('connection', (socket) => {
       socket.join(tableId);
       io.to(tableId).emit('playerJoined', { playerId, chips: startingChips });
       ack?.({ state });
+      emitGameStateToAllAtTable(io, table, 'player joined');
       scheduleAllInRunout(io, table);
       scheduleActionTimer(io, table);
 
@@ -597,6 +608,42 @@ function enrichState(table, state, forPlayerId) {
   if (!state) return state;
   state.hostId = table.hostId ?? null;
   state.gameStarted = table.gameStarted ?? false;
+  state.handNumber = table.handNumber ?? 0;
+  state.bigBlind   = table.config?.bigBlind   ?? 10;
+  state.smallBlind = table.config?.smallBlind ?? 5;
+  state.blindLevel = table.blindLevelIdx ?? 0;
+  state.nextBlindHand = state.nextBlindHand ?? null;
+
+  const inHand = table.stage !== 'waiting';
+  const ap = inHand && table.actionIdx >= 0 ? table.players[table.actionIdx] : null;
+  state.currentPlayerId = ap?.id ?? null;
+
+  if (inHand && table.dealerIdx >= 0 && table.players.length >= 2) {
+    const n = table.players.length;
+    const isHeadsUp = n === 2;
+    state.smallBlindIdx = isHeadsUp ? table.dealerIdx : (table.dealerIdx + 1) % n;
+    state.bigBlindIdx   = isHeadsUp ? (table.dealerIdx + 1) % n : (table.dealerIdx + 2) % n;
+  } else {
+    state.smallBlindIdx = -1;
+    state.bigBlindIdx   = -1;
+  }
+
+  if (ap) {
+    const outstanding = Math.max(0, (table.currentBet ?? 0) - (ap.bet ?? 0));
+    state.toCall = Math.min(outstanding, ap.chips ?? 0);
+    const canCheck = outstanding === 0;
+    const canRaise = (ap.chips ?? 0) > state.toCall;
+    state.validActions = [
+      ...(canCheck ? ['check'] : []),
+      ...(state.toCall > 0 ? ['call'] : []),
+      ...(canRaise ? ['raise'] : []),
+      'fold',
+    ];
+  } else {
+    state.toCall = 0;
+    state.validActions = [];
+  }
+
   return state;
 }
 
@@ -819,6 +866,14 @@ function handlePendingHandComplete(io, table, tableId) {
             chipsWonInGame,
           },
         });
+
+        if (spectateNsp) {
+          spectateNsp.to(`spectators-${tableId}`).emit('spectatorGameOver', {
+            winner: winner.id,
+            gameId: Number(gameId),
+            summary: { handsPlayed, chipsWonInGame },
+          });
+        }
 
         (async () => {
           let quote = null;

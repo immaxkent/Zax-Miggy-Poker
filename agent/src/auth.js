@@ -1,3 +1,4 @@
+import fetch from 'node-fetch';
 import { signMessage } from './wallet.js';
 
 /**
@@ -14,7 +15,7 @@ export async function authenticate(serverUrl, apiKey, wallet) {
 
   const challengeRes = await fetch(`${serverUrl}/auth/challenge`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+    headers: { 'Content-Type': 'application/json', 'x-poker-key': apiKey },
     body: JSON.stringify({ address }),
   });
   if (!challengeRes.ok) throw new Error(`Challenge failed: ${challengeRes.status}`);
@@ -24,7 +25,7 @@ export async function authenticate(serverUrl, apiKey, wallet) {
 
   const verifyRes = await fetch(`${serverUrl}/auth/verify`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+    headers: { 'Content-Type': 'application/json', 'x-poker-key': apiKey },
     body: JSON.stringify({ address, signature }),
   });
   if (!verifyRes.ok) throw new Error(`Verify failed: ${verifyRes.status}`);

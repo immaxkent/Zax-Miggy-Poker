@@ -65,11 +65,22 @@ async function main() {
   const usdcAddress     = process.env.USDC_ADDRESS      || '';
   const vaultAddress    = process.env.ZAX_MIGGY_VAULT_ADDRESS || '';
 
+  // Apply config defaults — these drive both on-chain behaviour and table selection
+  config.deposit_usdc      = config.deposit_usdc      ?? 1;
+  config.max_buy_in_usdc   = config.max_buy_in_usdc   ?? 1;
+  config.blind_interval    = config.blind_interval    ?? 10;
+  config.persona           = config.persona           ?? 'gto';
+
   // ── 2. Decrypt wallet ────────────────────────────────────────────────────
 
   console.log('[agent] Decrypting wallet...');
-  // Write keystore JSON to a temp buffer for ethers.Wallet.fromEncryptedJson
-  const wallet = await ethers.Wallet.fromEncryptedJson(keystoreJson, keystorePassword);
+  let wallet;
+  if (process.env.AGENT_WALLET_PRIVATE_KEY) {
+    // Dev/sim shortcut — raw private key bypasses keystore (never use in production)
+    wallet = new ethers.Wallet(process.env.AGENT_WALLET_PRIVATE_KEY);
+  } else {
+    wallet = await ethers.Wallet.fromEncryptedJson(keystoreJson, keystorePassword);
+  }
   const connectedWallet = wallet.connect(new ethers.JsonRpcProvider(rpcUrl));
   console.log(`[agent] Wallet: ${wallet.address}`);
 
@@ -81,7 +92,7 @@ async function main() {
 
   // ── 4. Find and join a game on-chain (if no gameId supplied) ────────────
 
-  if (!gameId) {
+  if (gameId == null) {
     if (!vaultAddress) {
       console.error('[agent] ZAX_MIGGY_VAULT_ADDRESS not set and no --game provided.');
       process.exit(1);
@@ -92,7 +103,7 @@ async function main() {
       vaultAddress,
       agentAddress: wallet.address,
       priceRangeMin: config.price_range_min ?? 0,
-      priceRangeMax: config.price_range_max ?? 0,
+      priceRangeMax: config.max_buy_in_usdc,
     });
 
     if (games.length === 0) {
@@ -113,6 +124,10 @@ async function main() {
 
   const systemPrompt = buildSystemPrompt(config);
 
+  const depositAmountUsdc = process.env.AGENT_DEPOSIT_USDC
+    ? Number(process.env.AGENT_DEPOSIT_USDC)
+    : config.deposit_usdc;
+
   console.log(`[agent] Connecting to table usdc-${gameId}...`);
   await connectAndPlay({
     socketUrl,
@@ -122,6 +137,8 @@ async function main() {
     gameId,
     systemPrompt,
     anthropicApiKey,
+    depositAmountUsdc,
+    persona: config.persona,
   });
 
   console.log('[agent] Session complete.');
