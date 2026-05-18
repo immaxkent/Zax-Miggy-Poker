@@ -246,10 +246,12 @@ app.post('/agent/activate', requireApiKey, async (req, res) => {
     const payload = verifyJWT(auth);
     const ownerAddress = payload.sub;
 
-    const { keystoreJson, keystorePassword, config: botConfig, gameId, botAddress } = req.body;
-    if (!keystoreJson || !keystorePassword || gameId == null) {
-      return res.status(400).json({ error: 'keystoreJson, keystorePassword, and gameId are required' });
+    const { keystoreJson, keystorePassword, config: botConfig, gameId, botAddress, anthropicApiKey: clientApiKey } = req.body;
+    if (!keystoreJson || !keystorePassword) {
+      return res.status(400).json({ error: 'keystoreJson and keystorePassword are required' });
     }
+
+    const resolvedGameId = gameId ? Number(gameId) : null;
 
     const result = spawnAgent({
       ownerAddress,
@@ -257,12 +259,12 @@ app.post('/agent/activate', requireApiKey, async (req, res) => {
       keystoreJson,
       keystorePassword,
       config: botConfig || {},
-      gameId: Number(gameId),
+      gameId: resolvedGameId,
       serverConfig: {
         serverUrl:       config.server.serverUrl || `http://localhost:${config.server.port}`,
         socketUrl:       config.server.socketUrl || `http://localhost:${config.server.port}`,
         apiKey:          config.server.apiKey,
-        anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
+        anthropicApiKey: clientApiKey || process.env.ANTHROPIC_API_KEY || '',
         rpcUrl:          config.chain.rpcUrl,
         usdcAddress:     config.chain.usdcAddress,
         vaultAddress:    config.chain.zaxMiggyVaultAddress,
@@ -270,7 +272,7 @@ app.post('/agent/activate', requireApiKey, async (req, res) => {
     });
 
     if (!result.ok) return res.status(409).json({ error: result.error });
-    res.json({ ok: true, gameId: Number(gameId) });
+    res.json({ ok: true, gameId: resolvedGameId });
   } catch (err) {
     console.error('Agent activate error:', err);
     res.status(500).json({ error: 'Failed to activate agent' });

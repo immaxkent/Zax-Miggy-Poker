@@ -535,8 +535,8 @@ function AppRoutes() {
           {/* Spectate — no auth required; token passed for bot-owner hole card visibility */}
           <Route path="/spectate/:gameId" element={<SpectateTable token={token} ownerAddress={address?.toLowerCase()} />} />
 
-          {/* Bot configuration — no auth required to browse presets */}
-          <Route path="/bots" element={<BotConfig />} />
+          {/* Bot wizard — no auth required to browse, but activation needs token */}
+          <Route path="/bots" element={<BotConfig token={token} address={address} />} />
 
           {/* Bot activation — auth required */}
           <Route path="/activate-agent" element={

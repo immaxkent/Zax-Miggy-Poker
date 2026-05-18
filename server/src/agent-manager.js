@@ -34,7 +34,7 @@ export function spawnAgent({ ownerAddress, botAddress, keystoreJson, keystorePas
     AGENT_KEYSTORE_JSON:      keystoreJson,
     AGENT_KEYSTORE_PASSWORD:  keystorePassword,
     AGENT_CONFIG_JSON:        JSON.stringify(config),
-    AGENT_GAME_ID:            String(gameId),
+    ...(gameId ? { AGENT_GAME_ID: String(gameId) } : {}),
     SERVER_URL:               serverConfig.serverUrl,
     SOCKET_URL:               serverConfig.socketUrl,
     SERVER_API_KEY:           serverConfig.apiKey,
