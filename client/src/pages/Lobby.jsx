@@ -604,6 +604,25 @@ export default function Lobby({ token, address }) {
     }).filter(Boolean).filter(g => !g.finished && g.players < 8);
   }, [allGamesRaw]);
 
+  // ── Bot status — which game (if any) is this wallet's bot currently in ────────
+  const [myBotGameId, setMyBotGameId] = useState(null);
+
+  useEffect(() => {
+    if (!token) return;
+    async function pollBot() {
+      try {
+        const res = await fetch(`${SERVER_URL}/agent/status`, {
+          headers: { 'X-Poker-Key': SERVER_API_KEY, 'Authorization': `Bearer ${token}` },
+        });
+        const data = await res.json();
+        setMyBotGameId(data?.status === 'running' && data.gameId != null ? Number(data.gameId) : null);
+      } catch { /* ignore */ }
+    }
+    pollBot();
+    const id = setInterval(pollBot, 4000);
+    return () => clearInterval(id);
+  }, [token]);
+
   // ── Live server-side games (for Watch buttons + in-progress badge) ───────────
   const [liveGames, setLiveGames] = useState({});
 
@@ -786,16 +805,20 @@ export default function Lobby({ token, address }) {
           {/* Open game cards */}
           {usdcVaultReady() && openGames.length > 0 ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-              {openGames.map(game => (
+              {openGames.map(game => {
+                const isMyBot = myBotGameId != null && Number(game.id) === myBotGameId;
+                return (
                 <div key={game.id} style={{
-                  background: '#0d1520', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14,
-                  padding: 18, transition: 'all 0.2s', cursor: 'pointer',
+                  background: '#0d1520',
+                  border: `1px solid ${isMyBot ? `${G}55` : 'rgba(255,255,255,0.07)'}`,
+                  boxShadow: isMyBot ? `0 0 24px ${G}14, inset 0 0 0 1px ${G}10` : 'none',
+                  borderRadius: 14, padding: 18, transition: 'all 0.2s', cursor: 'pointer',
                 }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = `${G}40`; e.currentTarget.style.transform = 'translateY(-2px)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; e.currentTarget.style.transform = 'none'; }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = `${G}60`; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = isMyBot ? `${G}55` : 'rgba(255,255,255,0.07)'; e.currentTarget.style.transform = 'none'; }}
                   onClick={() => { setJoinUsdcInitialId(game.id); setShowJoinUsdc(true); }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                       <div style={{
                         fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', color: G,
                         background: `${G}15`, border: `1px solid ${G}30`, padding: '2px 8px', borderRadius: 4,
@@ -803,6 +826,12 @@ export default function Lobby({ token, address }) {
                       {liveGames[game.id] && liveGames[game.id].stage !== 'waiting' && (
                         <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', color: '#a855f7', background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)', padding: '2px 8px', borderRadius: 4 }}>
                           LIVE
+                        </div>
+                      )}
+                      {isMyBot && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', color: G, background: `${G}18`, border: `1px solid ${G}50`, padding: '2px 8px', borderRadius: 4 }}>
+                          <div style={{ width: 5, height: 5, borderRadius: '50%', background: G, boxShadow: `0 0 6px ${G}` }} />
+                          YOUR BOT
                         </div>
                       )}
                     </div>
@@ -846,7 +875,8 @@ export default function Lobby({ token, address }) {
                     </Link>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           ) : usdcVaultReady() ? (
             <div style={{
