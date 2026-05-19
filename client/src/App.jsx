@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
 import { WagmiProvider }   from 'wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RainbowKitProvider, ConnectButton } from '@rainbow-me/rainbowkit';
 import '@rainbow-me/rainbowkit/styles.css';
 
-import { wagmiConfig, SERVER_URL } from './utils/web3Config';
+import { wagmiConfig, SERVER_URL, SERVER_API_KEY } from './utils/web3Config';
 import { useAuth }     from './hooks/useAuth';
 import { GameProvider, useGame } from './context/GameContext';
 import Lobby         from './pages/Lobby';
@@ -30,11 +30,11 @@ function NavBar({ connected, onlinePlayers, authed }) {
   const links = [
     { label: 'HOME',     to: '/',          active: pathname === '/' },
     { label: 'RANKINGS', to: '/rankings',  active: pathname === '/rankings' },
+    { label: 'BOTS',     to: '/bots',      active: pathname === '/bots' || pathname === '/activate-agent' },
   ];
   const protectedLinks = [
-    { label: 'LOBBY',    to: '/lobby',           active: pathname === '/lobby' },
-    { label: 'TABLE',    to: '/lobby',            active: pathname.startsWith('/game') },
-    { label: 'BOTS',     to: '/bots',             active: pathname === '/bots' || pathname === '/activate-agent' },
+    { label: 'LOBBY',    to: '/lobby',     active: pathname === '/lobby' },
+    { label: 'TABLE',    to: '/lobby',     active: pathname.startsWith('/game') },
   ];
 
   return (
@@ -219,8 +219,263 @@ function TourneyCard({ badge, badgeColor, tag, name, prize, buyIn, players, maxP
   );
 }
 
-// ─── Landing page (shown at / when not authed) ─────────────────────────────────
-function LandingPage({ address, authed, loading, authError, login, serverReachable }) {
+// ─── Launch Bot Modal ─────────────────────────────────────────────────────────
+function LaunchBotModal({ onClose }) {
+  const ksInput  = useRef(null);
+  const cfgInput = useRef(null);
+
+  const [ksName,  setKsName]  = useState(null);
+  const [ksJson,  setKsJson]  = useState(null);
+  const [ksError, setKsError] = useState(null);
+  const [ksDrag,  setKsDrag]  = useState(false);
+
+  const [cfgName, setCfgName] = useState(null);
+  const [cfgJson, setCfgJson] = useState(null);
+  const [showCfg, setShowCfg] = useState(false);
+
+  const [password, setPassword] = useState('');
+  const [showPw,   setShowPw]   = useState(false);
+
+  const [apiKey,    setApiKey]    = useState('');
+  const [showKey,   setShowKey]   = useState(false);
+  const [showKeyFld, setShowKeyFld] = useState(false);
+
+  const [launching,   setLaunching]   = useState(false);
+  const [launchError, setLaunchError] = useState(null);
+  const [launched,    setLaunched]    = useState(null); // { botAddress, gameId }
+
+  // Poll for gameId when bot is auto-discovering a game
+  useEffect(() => {
+    if (!launched?.botAddress || launched.gameId != null) return;
+    const id = setInterval(async () => {
+      try {
+        const res  = await fetch(`${SERVER_URL}/agent/status/${launched.botAddress}`, {
+          headers: { 'X-Poker-Key': SERVER_API_KEY },
+        });
+        const data = await res.json();
+        if (data.gameId) setLaunched(prev => ({ ...prev, gameId: data.gameId }));
+      } catch { /* ignore */ }
+    }, 2000);
+    return () => clearInterval(id);
+  }, [launched]);
+
+  function readFile(f, onText) {
+    const r = new FileReader();
+    r.onload = e => onText(f.name, e.target.result);
+    r.readAsText(f);
+  }
+
+  function handleKsFile(name, text) {
+    setKsError(null);
+    try {
+      const parsed = JSON.parse(text);
+      if (!parsed.version || !parsed.crypto) throw new Error('Not a valid keystore file');
+      setKsJson(text); setKsName(name);
+    } catch (e) { setKsError(e.message || 'Invalid keystore'); }
+  }
+
+  function handleCfgFile(name, text) {
+    try { JSON.parse(text); setCfgJson(text); setCfgName(name); } catch { /* ignore */ }
+  }
+
+  async function handleLaunch() {
+    if (!ksJson || !password || launching) return;
+    setLaunchError(null);
+    setLaunching(true);
+    try {
+      const res  = await fetch(`${SERVER_URL}/agent/launch`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Poker-Key': SERVER_API_KEY },
+        body:    JSON.stringify({
+          keystoreJson:    ksJson,
+          keystorePassword: password,
+          config:          cfgJson ? JSON.parse(cfgJson) : {},
+          anthropicApiKey: apiKey.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Launch failed');
+      setLaunched({ botAddress: data.botAddress, gameId: data.gameId });
+    } catch (e) { setLaunchError(e.message); }
+    setLaunching(false);
+  }
+
+  const canLaunch = !!ksJson && !!password && !launching;
+
+  // ── Dropzone component (inline) ──
+  function Dropzone({ file, error, drag, onDrag, onDrop, onFile, inputRef, hint, accept = '.json' }) {
+    return (
+      <div
+        onClick={() => inputRef.current.click()}
+        onDragOver={e => { e.preventDefault(); onDrag(true); }}
+        onDragLeave={() => onDrag(false)}
+        onDrop={e => { e.preventDefault(); onDrag(false); const f = e.dataTransfer.files[0]; if (f) readFile(f, onFile); }}
+        style={{
+          padding: '18px 16px', borderRadius: 10, cursor: 'pointer', textAlign: 'center', transition: 'all 0.15s',
+          background: drag ? `${VIOLET}10` : file ? `${G}08` : 'rgba(255,255,255,0.02)',
+          border: `2px dashed ${drag ? VIOLET : file ? G : error ? '#f87171' : 'rgba(255,255,255,0.12)'}`,
+        }}>
+        <input ref={inputRef} type="file" accept={accept} style={{ display: 'none' }}
+          onChange={e => { if (e.target.files[0]) readFile(e.target.files[0], onFile); }} />
+        {file
+          ? <div style={{ color: G, fontSize: 13, fontWeight: 600 }}>✓ {file}<div style={{ color: '#334155', fontSize: 10, marginTop: 2, fontWeight: 400 }}>click to replace</div></div>
+          : <div style={{ color: error ? '#f87171' : '#334155', fontSize: 13 }}>{error || hint}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+      <div style={{ background: '#0d1520', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 18, padding: '32px 28px', width: '100%', maxWidth: 460, position: 'relative', maxHeight: '90vh', overflowY: 'auto' }}>
+
+        {/* Close */}
+        <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 18, background: 'none', border: 'none', color: '#334155', cursor: 'pointer', fontSize: 22, lineHeight: 1 }}>×</button>
+
+        {launched ? (
+          /* ── Success state ── */
+          <div style={{ textAlign: 'center', padding: '8px 0' }}>
+            <div style={{ width: 56, height: 56, borderRadius: '50%', background: `${G}18`, border: `2px solid ${G}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 24 }}>✓</div>
+            <h2 style={{ color: '#fff', fontWeight: 900, fontSize: 22, letterSpacing: '0.06em', textTransform: 'uppercase', margin: '0 0 8px' }}>
+              BOT <span style={{ color: G }}>LAUNCHED</span>
+            </h2>
+            <div style={{ color: '#475569', fontSize: 12, fontFamily: 'Space Mono,monospace', marginBottom: 24 }}>
+              {launched.botAddress?.slice(0, 10)}…{launched.botAddress?.slice(-6)}
+            </div>
+            {launched.gameId != null ? (
+              <Link to={`/spectate/${launched.gameId}`} onClick={onClose} style={{
+                display: 'block', padding: '13px', borderRadius: 10, textDecoration: 'none', textAlign: 'center',
+                background: `${G}18`, border: `1px solid ${G}40`,
+                color: G, fontSize: 14, fontWeight: 800, letterSpacing: '0.12em',
+              }}>
+                WATCH GAME #{launched.gameId} →
+              </Link>
+            ) : (
+              <div style={{ padding: '13px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: '#475569', fontSize: 13 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 6 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: G, boxShadow: `0 0 6px ${G}`, animation: 'pulse 1.5s infinite' }} />
+                  <span style={{ color: '#94a3b8', fontSize: 12, fontWeight: 600 }}>Bot is finding a game…</span>
+                </div>
+                <div style={{ color: '#334155', fontSize: 11 }}>This page will update when a game is joined.</div>
+              </div>
+            )}
+            <button onClick={onClose} style={{ marginTop: 14, width: '100%', padding: '10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: '#475569', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '0.08em' }}>
+              CLOSE
+            </button>
+          </div>
+        ) : (
+          /* ── Form state ── */
+          <>
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ color: '#334155', fontSize: 10, fontWeight: 700, letterSpacing: '0.2em', marginBottom: 8 }}>// AI BOTS</div>
+              <h2 style={{ color: '#fff', fontWeight: 900, fontSize: 22, letterSpacing: '0.06em', textTransform: 'uppercase', margin: '0 0 8px' }}>
+                JOIN LOBBY <span style={{ color: G }}>WITH BOT</span>
+              </h2>
+              <p style={{ color: '#475569', fontSize: 13, margin: 0, lineHeight: 1.5 }}>
+                Upload your bot's keystore and it'll join a game automatically.{' '}
+                <Link to="/bots" onClick={onClose} style={{ color: VIOLET, textDecoration: 'none' }}>Need a bot?</Link>
+              </p>
+            </div>
+
+            {/* Keystore */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ color: '#475569', fontSize: 10, fontWeight: 700, letterSpacing: '0.15em', marginBottom: 8 }}>KEYSTORE FILE <span style={{ color: '#f87171' }}>*</span></div>
+              <Dropzone
+                file={ksName} error={ksError} drag={ksDrag}
+                onDrag={setKsDrag} onFile={handleKsFile}
+                inputRef={ksInput}
+                hint="Drop keystore.json here or click to browse"
+              />
+            </div>
+
+            {/* Password */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ color: '#475569', fontSize: 10, fontWeight: 700, letterSpacing: '0.15em', marginBottom: 8 }}>WALLET PASSWORD <span style={{ color: '#f87171' }}>*</span></div>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleLaunch()}
+                  placeholder="Enter keystore password"
+                  style={{ width: '100%', padding: '11px 44px 11px 14px', borderRadius: 8, boxSizing: 'border-box', background: '#060d14', border: '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0', fontSize: 13, outline: 'none', fontFamily: 'Space Mono,monospace' }}
+                />
+                <button onClick={() => setShowPw(v => !v)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: 14 }}>
+                  {showPw ? '🙈' : '👁'}
+                </button>
+              </div>
+            </div>
+
+            {/* Config — collapsible */}
+            <div style={{ marginBottom: 16 }}>
+              <button onClick={() => setShowCfg(v => !v)} style={{ background: 'none', border: 'none', color: '#334155', fontSize: 11, cursor: 'pointer', padding: 0, fontFamily: 'inherit', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 6 }}>
+                {showCfg ? '▲' : '▼'} CONFIG FILE <span style={{ color: '#1e3050', fontWeight: 400 }}>(optional — uses GTO defaults if omitted)</span>
+              </button>
+              {showCfg && (
+                <div style={{ marginTop: 10 }}>
+                  <Dropzone
+                    file={cfgName} drag={false}
+                    onDrag={() => {}} onFile={handleCfgFile}
+                    inputRef={cfgInput}
+                    hint="Drop config.json here or click to browse"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* API key — collapsible */}
+            <div style={{ marginBottom: 20 }}>
+              <button onClick={() => setShowKeyFld(v => !v)} style={{ background: 'none', border: 'none', color: '#334155', fontSize: 11, cursor: 'pointer', padding: 0, fontFamily: 'inherit', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 6 }}>
+                {showKeyFld ? '▲' : '▼'} ANTHROPIC API KEY <span style={{ color: '#1e3050', fontWeight: 400 }}>(optional — plays randomly without one)</span>
+              </button>
+              {showKeyFld && (
+                <div style={{ marginTop: 10, position: 'relative' }}>
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    value={apiKey}
+                    onChange={e => setApiKey(e.target.value)}
+                    placeholder="sk-ant-…"
+                    style={{ width: '100%', padding: '11px 44px 11px 14px', borderRadius: 8, boxSizing: 'border-box', background: '#060d14', border: '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0', fontSize: 13, outline: 'none', fontFamily: 'Space Mono,monospace' }}
+                  />
+                  <button onClick={() => setShowKey(v => !v)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: 14 }}>
+                    {showKey ? '🙈' : '👁'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Error */}
+            {launchError && (
+              <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171', fontSize: 13, marginBottom: 16 }}>
+                {launchError}
+              </div>
+            )}
+
+            {/* Launch button */}
+            <button onClick={handleLaunch} disabled={!canLaunch} style={{
+              width: '100%', padding: '14px', borderRadius: 10, border: 'none',
+              background: canLaunch ? `linear-gradient(135deg, ${G}, #00b4d8)` : 'rgba(255,255,255,0.05)',
+              color: canLaunch ? '#000' : '#334155',
+              fontSize: 14, fontWeight: 900, letterSpacing: '0.14em', fontFamily: 'inherit',
+              cursor: canLaunch ? 'pointer' : 'not-allowed', transition: 'all 0.2s',
+              boxShadow: canLaunch ? `0 0 30px ${G}20` : 'none',
+            }}>
+              {launching ? '⏳ LAUNCHING…' : 'JOIN LOBBY WITH BOT'}
+            </button>
+
+            {!ksJson && <div style={{ color: '#1e3050', fontSize: 11, textAlign: 'center', marginTop: 8 }}>Upload a keystore to continue.</div>}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Landing page ─────────────────────────────────────────────────────────────
+function LandingPage() {
+  const [showLaunchModal, setShowLaunchModal] = useState(false);
+
   const STATS = [
     { label: 'TOTAL WAGERED', value: '≡ 184,392' },
     { label: 'HANDS PLAYED',  value: '12.4M' },
@@ -287,58 +542,28 @@ function LandingPage({ address, authed, loading, authError, login, serverReachab
         </p>
 
         {/* CTAs */}
-        <div style={{ display: 'flex', gap: 16, marginBottom: 36, flexWrap: 'wrap', justifyContent: 'center' }}>
-          {authed ? (
-            <Link to="/lobby" style={{
-              padding: '14px 40px', borderRadius: 8, textDecoration: 'none',
+        <div style={{ display: 'flex', gap: 14, marginBottom: 36, flexWrap: 'wrap', justifyContent: 'center' }}>
+          <button
+            onClick={() => setShowLaunchModal(true)}
+            style={{
+              padding: '14px 40px', borderRadius: 8, border: 'none',
               background: `linear-gradient(135deg, ${G}, #00b4d8)`,
               color: '#000', fontSize: 14, fontWeight: 800, letterSpacing: '0.12em',
-              boxShadow: `0 0 30px ${G}40`,
+              cursor: 'pointer', boxShadow: `0 0 30px ${G}40`, fontFamily: 'inherit',
             }}>
-              ENTER LOBBY →
-            </Link>
-          ) : !address ? (
-            <>
-              <ConnectButton />
-              <button style={{
-                padding: '12px 28px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)',
-                background: 'transparent', color: '#94a3b8', fontSize: 13, fontWeight: 700,
-                letterSpacing: '0.1em', cursor: 'pointer',
-              }}>
-                ✉ SIGN IN WITH EMAIL
-              </button>
-            </>
-          ) : (
-            <>
-              {serverReachable === false && (
-                <div style={{
-                  color: '#fbbf24', fontSize: 13, padding: '10px 20px', borderRadius: 8,
-                  background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)',
-                  maxWidth: 360, textAlign: 'center',
-                }}>
-                  Game server unreachable. Start it or check your tunnel.
-                </div>
-              )}
-              {authError && (
-                <div style={{ color: '#f87171', fontSize: 13, padding: '8px 16px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
-                  {authError}
-                </div>
-              )}
-              <button onClick={login} disabled={loading || serverReachable === false}
-                style={{
-                  padding: '14px 36px', borderRadius: 8, border: 'none',
-                  background: `linear-gradient(135deg, ${G}, #00b4d8)`,
-                  color: '#000', fontSize: 14, fontWeight: 800, letterSpacing: '0.12em',
-                  cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1,
-                  boxShadow: `0 0 30px ${G}40`,
-                  display: 'flex', alignItems: 'center', gap: 8,
-                }}>
-                {loading ? '⏳ SIGNING...' : '🔐 SIGN IN TO PLAY'}
-              </button>
-              <ConnectButton chainStatus="icon" showBalance={false} />
-            </>
-          )}
+            LAUNCH BOT →
+          </button>
+          <Link to="/bots" style={{
+            padding: '14px 32px', borderRadius: 8, textDecoration: 'none',
+            background: 'transparent', border: '1px solid rgba(255,255,255,0.15)',
+            color: '#94a3b8', fontSize: 14, fontWeight: 700, letterSpacing: '0.12em',
+            display: 'flex', alignItems: 'center',
+          }}>
+            GENERATE BOT
+          </Link>
         </div>
+
+        {showLaunchModal && <LaunchBotModal onClose={() => setShowLaunchModal(false)} />}
 
         {/* Trust badges */}
         <div style={{ display: 'flex', gap: 24, color: '#475569', fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -500,16 +725,7 @@ function AppRoutes() {
       {/* Main — padded for fixed nav, except on game pages which handle their own height */}
       <main style={{ paddingTop: 60 }}>
         <Routes>
-          <Route path="/" element={
-            <LandingPage
-              address={address}
-              authed={authed}
-              loading={loading}
-              authError={authError}
-              login={login}
-              serverReachable={serverReachable}
-            />
-          } />
+          <Route path="/" element={<LandingPage />} />
 
           <Route path="/lobby" element={
             !address

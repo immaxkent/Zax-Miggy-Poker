@@ -39,7 +39,7 @@ import {
   getLeaderboard,
 } from './security.js';
 import { PokerTable } from './poker-engine.js';
-import { spawnAgent, killAgent, getAgentStatus } from './agent-manager.js';
+import { spawnAgent, killAgent, getAgentStatus, getAgentStatusByBotAddress } from './agent-manager.js';
 
 // ─── Validate env on boot ─────────────────────────────────────────────────────
 validateConfig();
@@ -306,6 +306,58 @@ app.delete('/agent', requireApiKey, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Kill agent failed' });
   }
+});
+
+// POST /agent/launch — launch a bot without JWT; keystore IS the proof of ownership
+app.post('/agent/launch', requireApiKey, (req, res) => {
+  try {
+    const { keystoreJson, keystorePassword, config: botConfig, gameId, anthropicApiKey: clientApiKey } = req.body;
+    if (!keystoreJson || !keystorePassword) {
+      return res.status(400).json({ error: 'keystoreJson and keystorePassword are required' });
+    }
+
+    // Address is stored in plaintext in EIP-55 keystores — no decryption needed here
+    let botAddress;
+    try {
+      const ks = JSON.parse(keystoreJson);
+      if (!ks.address) throw new Error('no address field');
+      botAddress = '0x' + ks.address.replace(/^0x/i, '');
+    } catch {
+      return res.status(400).json({ error: 'Invalid keystore JSON' });
+    }
+
+    const resolvedGameId = gameId ? Number(gameId) : null;
+
+    const result = spawnAgent({
+      ownerAddress: botAddress.toLowerCase(),
+      botAddress,
+      keystoreJson,
+      keystorePassword,
+      config: botConfig || {},
+      gameId: resolvedGameId,
+      serverConfig: {
+        serverUrl:       config.server.serverUrl || `http://localhost:${config.server.port}`,
+        socketUrl:       config.server.socketUrl || `http://localhost:${config.server.port}`,
+        apiKey:          config.server.apiKey,
+        anthropicApiKey: clientApiKey || process.env.ANTHROPIC_API_KEY || '',
+        rpcUrl:          config.chain.rpcUrl,
+        usdcAddress:     config.chain.usdcAddress,
+        vaultAddress:    config.chain.zaxMiggyVaultAddress,
+      },
+    });
+
+    if (!result.ok) return res.status(409).json({ error: result.error });
+    res.json({ ok: true, gameId: resolvedGameId, botAddress });
+  } catch (err) {
+    console.error('Agent launch error:', err);
+    res.status(500).json({ error: 'Failed to launch agent' });
+  }
+});
+
+// GET /agent/status/:botAddress — poll agent state by bot address; no JWT needed
+app.get('/agent/status/:botAddress', requireApiKey, (req, res) => {
+  const status = getAgentStatusByBotAddress(req.params.botAddress.toLowerCase());
+  res.json(status ?? { status: 'none' });
 });
 
 app.post('/ops/hygiene', requireApiKey, (_, res) => {

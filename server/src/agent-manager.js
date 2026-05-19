@@ -112,6 +112,26 @@ export function getAgentStatus(ownerAddress) {
 }
 
 /**
+ * Return status + recent logs for an agent by its bot wallet address.
+ * Used by the no-JWT /agent/status/:botAddress endpoint.
+ */
+export function getAgentStatusByBotAddress(botAddress) {
+  for (const entry of activeAgents.values()) {
+    if ((entry.botAddress || '').toLowerCase() === botAddress.toLowerCase()) {
+      return {
+        ownerAddress: entry.ownerAddress,
+        botAddress:   entry.botAddress,
+        gameId:       entry.gameId,
+        startedAt:    entry.startedAt,
+        status:       entry.status,
+        output:       entry.output.slice(-50),
+      };
+    }
+  }
+  return null;
+}
+
+/**
  * Return a summary of all active agents.
  */
 export function listAgents() {
