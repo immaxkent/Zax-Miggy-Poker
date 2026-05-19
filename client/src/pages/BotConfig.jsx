@@ -130,6 +130,7 @@ export default function BotWizard({ token, address }) {
   const [password, setPassword]             = useState('');
   const [showPw, setShowPw]                 = useState(false);
   const [generating, setGenerating]         = useState(false);
+  const [encryptProgress, setEncryptProgress] = useState(null); // 0-100 while encrypting
   const [genError, setGenError]             = useState(null);
   const [genWallet, setGenWallet]           = useState(null); // { address, keystoreJson }
   const [keystoreName, setKeystoreName]     = useState(null);
@@ -193,15 +194,20 @@ export default function BotWizard({ token, address }) {
   async function generateWallet() {
     if (!password || generating) return;
     setGenerating(true);
+    setEncryptProgress(0);
     setGenError(null);
     try {
       const wallet = ethers.Wallet.createRandom();
-      const keystore = await wallet.encrypt(password, { scrypt: { N: 1 << 14 } });
+      // ethers v6: second arg must be a ProgressCallback function, not an options object
+      const keystore = await wallet.encrypt(password, (progress) => {
+        setEncryptProgress(Math.round(progress * 100));
+      });
       setGenWallet({ address: wallet.address, keystoreJson: keystore });
       setKeystoreDownloaded(false);
     } catch (e) {
       setGenError(e.message || 'Wallet generation failed');
     }
+    setEncryptProgress(null);
     setGenerating(false);
   }
 
@@ -452,20 +458,29 @@ export default function BotWizard({ token, address }) {
                   </div>
 
                   {!genWallet ? (
-                    <button
-                      onClick={generateWallet}
-                      disabled={!password || generating}
-                      style={{
-                        padding: '11px', borderRadius: 8, border: 'none', cursor: password && !generating ? 'pointer' : 'not-allowed',
-                        background: password && !generating ? `linear-gradient(135deg, #1e3050, #0d1a30)` : 'rgba(255,255,255,0.03)',
-                        border: `1px solid ${password && !generating ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)'}`,
-                        color: password && !generating ? '#e2e8f0' : '#1e3050',
-                        fontSize: 13, fontWeight: 700, letterSpacing: '0.1em', fontFamily: 'inherit',
-                        transition: 'all 0.2s',
-                      }}
-                    >
-                      {generating ? '⏳ GENERATING…' : '⚡ GENERATE WALLET'}
-                    </button>
+                    <>
+                      <button
+                        onClick={generateWallet}
+                        disabled={!password || generating}
+                        style={{
+                          padding: '11px', borderRadius: 8, cursor: password && !generating ? 'pointer' : 'not-allowed',
+                          background: password && !generating ? `linear-gradient(135deg, #1e3050, #0d1a30)` : 'rgba(255,255,255,0.03)',
+                          border: `1px solid ${password && !generating ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)'}`,
+                          color: password && !generating ? '#e2e8f0' : '#1e3050',
+                          fontSize: 13, fontWeight: 700, letterSpacing: '0.1em', fontFamily: 'inherit',
+                          transition: 'all 0.2s',
+                        }}
+                      >
+                        {generating
+                          ? (encryptProgress != null ? `ENCRYPTING… ${encryptProgress}%` : 'GENERATING…')
+                          : '⚡ GENERATE WALLET'}
+                      </button>
+                      {encryptProgress != null && (
+                        <div style={{ borderRadius: 4, overflow: 'hidden', background: 'rgba(255,255,255,0.05)', height: 3 }}>
+                          <div style={{ height: '100%', width: `${encryptProgress}%`, background: G, transition: 'width 0.15s linear', boxShadow: `0 0 6px ${G}` }} />
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       <div style={{ padding: '12px 16px', borderRadius: 8, background: `${G}0a`, border: `1px solid ${G}25`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
