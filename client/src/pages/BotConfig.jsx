@@ -155,12 +155,14 @@ export default function BotWizard({ token, address }) {
   const [liveGames, setLiveGames]           = useState([]);
 
   // ── Activation ──
-  const [activating, setActivating]     = useState(false);
+  const [activating, setActivating]       = useState(false);
   const [activateError, setActivateError] = useState(null);
-  const [agentStatus, setAgentStatus]   = useState(null);
-  const pollRef = useRef(null);
+  const [agentStatus, setAgentStatus]     = useState(null);
+  const [launchResult, setLaunchResult]   = useState(null); // { botAddress, gameId } after successful launch
+  const pollRef    = useRef(null);
+  const botPollRef = useRef(null);
 
-  // Poll agent status
+  // JWT-based polling — when MetaMask is connected
   useEffect(() => {
     if (!token) return;
     async function poll() {
@@ -176,6 +178,25 @@ export default function BotWizard({ token, address }) {
     pollRef.current = setInterval(poll, 4000);
     return () => clearInterval(pollRef.current);
   }, [token]);
+
+  // Bot-address polling — no JWT required; active after a successful launch
+  useEffect(() => {
+    const addr = launchResult?.botAddress;
+    if (!addr) return;
+    async function poll() {
+      try {
+        const res = await fetch(`${SERVER_URL}/agent/status/${addr}`, {
+          headers: { 'X-Poker-Key': SERVER_API_KEY },
+        });
+        const data = await res.json();
+        console.log('[BotWizard] status poll:', data);
+        if (data?.status && data.status !== 'none') setAgentStatus(data);
+      } catch (e) { console.warn('[BotWizard] status poll error:', e.message); }
+    }
+    poll();
+    botPollRef.current = setInterval(poll, 3000);
+    return () => clearInterval(botPollRef.current);
+  }, [launchResult]);
 
   // Fetch live games
   useEffect(() => {
@@ -251,7 +272,7 @@ export default function BotWizard({ token, address }) {
   const step1Done = true; // API key is optional
   const step2Done = !!effectiveKeystoreJson && !!password;
   const step3Done = step2Done;
-  const canCreate = step2Done && !activating && agentStatus?.status !== 'running';
+  const canCreate = step2Done && !activating && !launchResult && agentStatus?.status !== 'running';
 
   function buildConfig() {
     return {
@@ -266,17 +287,47 @@ export default function BotWizard({ token, address }) {
   }
 
   async function handleCreateBot() {
-    if (!canCreate) return;
+    console.log('[BotWizard] CREATE BOT clicked', {
+      canCreate,
+      step2Done,
+      activating,
+      alreadyRunning: agentStatus?.status === 'running',
+      effectiveAddress,
+      effectiveGameId,
+      hasKeystore: !!effectiveKeystoreJson,
+      hasPassword: !!password,
+    });
+    if (!canCreate) {
+      console.warn('[BotWizard] canCreate=false — button should be disabled');
+      return;
+    }
+
+    // Auto-download keystore before launching (single user journey)
+    if (walletMode === 'generate' && genWallet) {
+      console.log('[BotWizard] auto-downloading keystore for', genWallet.address);
+      downloadKeystore();
+    }
+
     setActivateError(null);
     setActivating(true);
     try {
+      const config = buildConfig();
+      console.log('[BotWizard] built config:', config);
+
       const body = {
         keystoreJson:     effectiveKeystoreJson,
         keystorePassword: password,
-        config:           buildConfig(),
+        config,
         gameId:           effectiveGameId || undefined,
         anthropicApiKey:  anthropicKey.trim() || undefined,
       };
+      console.log('[BotWizard] POST /agent/launch', {
+        url: `${SERVER_URL}/agent/launch`,
+        botAddress: effectiveAddress,
+        gameId: effectiveGameId,
+        keystoreLen: effectiveKeystoreJson?.length,
+      });
+
       const res = await fetch(`${SERVER_URL}/agent/launch`, {
         method: 'POST',
         headers: {
@@ -285,9 +336,17 @@ export default function BotWizard({ token, address }) {
         },
         body: JSON.stringify(body),
       });
+
+      console.log('[BotWizard] /agent/launch HTTP status:', res.status);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Launch failed');
+      console.log('[BotWizard] /agent/launch response body:', data);
+
+      if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+
+      console.log('[BotWizard] launch success — botAddress:', data.botAddress, 'gameId:', data.gameId);
+      setLaunchResult({ botAddress: data.botAddress, gameId: data.gameId });
     } catch (e) {
+      console.error('[BotWizard] launch failed:', e.message);
       setActivateError(e.message);
     }
     setActivating(false);
@@ -295,52 +354,68 @@ export default function BotWizard({ token, address }) {
 
   async function handleStop() {
     try {
-      await fetch(`${SERVER_URL}/agent`, {
-        method: 'DELETE',
-        headers: { 'X-Poker-Key': SERVER_API_KEY, 'Authorization': `Bearer ${token}` },
-      });
-      setAgentStatus(null);
+      const botAddr = agentStatus?.botAddress || launchResult?.botAddress;
+      console.log('[BotWizard] stopping bot', botAddr);
+      if (token) {
+        await fetch(`${SERVER_URL}/agent`, {
+          method: 'DELETE',
+          headers: { 'X-Poker-Key': SERVER_API_KEY, 'Authorization': `Bearer ${token}` },
+        });
+      }
     } catch { /* ignore */ }
+    setAgentStatus(null);
+    setLaunchResult(null);
   }
 
-  const isRunning = agentStatus?.status === 'running';
+  // Show running panel if JWT polling confirmed running, OR if we just launched (bot starting up)
+  const isRunning = agentStatus?.status === 'running' || !!launchResult;
+  // Merged data — prefer live agentStatus, fall back to launchResult while agent is starting
+  const displayAgent = agentStatus ?? {
+    botAddress: launchResult?.botAddress,
+    gameId:     launchResult?.gameId ?? null,
+    status:     'starting',
+    output:     [],
+  };
   const accent = PRESETS[preset]?.color || G;
 
   // ── Running panel ──
   if (isRunning) {
+    const statusColor  = displayAgent.status === 'running' ? G : '#f59e0b';
+    const statusLabel  = displayAgent.status === 'running' ? 'RUNNING' : displayAgent.status === 'starting' ? 'STARTING…' : displayAgent.status?.toUpperCase();
+
     return (
       <div style={{ minHeight: 'calc(100vh - 60px)', background: BG, fontFamily: "'Space Grotesk','Outfit',sans-serif" }}>
         <div style={{ maxWidth: 680, margin: '0 auto', padding: '48px 24px 64px' }}>
           <div style={{ marginBottom: 36 }}>
             <div style={{ color: '#334155', fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', marginBottom: 8 }}>// AI BOTS</div>
             <h1 style={{ color: '#fff', fontWeight: 900, fontSize: 28, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1, margin: '0 0 8px' }}>
-              BOT <span style={{ color: G }}>ACTIVE</span>
+              BOT <span style={{ color: statusColor }}>ACTIVE</span>
             </h1>
           </div>
 
-          <div style={{ background: '#0d1520', border: `1px solid ${G}30`, borderRadius: 14, padding: 24, marginBottom: 20 }}>
+          <div style={{ background: '#0d1520', border: `1px solid ${statusColor}30`, borderRadius: 14, padding: 24, marginBottom: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: G, boxShadow: `0 0 8px ${G}` }} />
-                  <span style={{ color: G, fontSize: 11, fontWeight: 700, letterSpacing: '0.14em' }}>RUNNING</span>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, boxShadow: `0 0 8px ${statusColor}` }} />
+                  <span style={{ color: statusColor, fontSize: 11, fontWeight: 700, letterSpacing: '0.14em' }}>{statusLabel}</span>
                 </div>
-                {agentStatus.botAddress && (
+                {displayAgent.botAddress && (
                   <div style={{ color: '#475569', fontSize: 12, fontFamily: 'Space Mono,monospace' }}>
-                    Bot: {agentStatus.botAddress.slice(0, 8)}…{agentStatus.botAddress.slice(-4)}
+                    Bot: {displayAgent.botAddress.slice(0, 8)}…{displayAgent.botAddress.slice(-4)}
                   </div>
                 )}
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ color: '#334155', fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', marginBottom: 4 }}>GAME ID</div>
                 <div style={{ color: '#fff', fontWeight: 700, fontSize: 16, fontFamily: 'Space Mono,monospace' }}>
-                  {agentStatus.gameId != null ? `#${agentStatus.gameId}` : 'auto'}
+                  {displayAgent.gameId != null ? `#${displayAgent.gameId}` : 'finding game…'}
                 </div>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
-              {agentStatus.gameId != null && (
-                <Link to={`/spectate/${agentStatus.gameId}`} style={{
+              {displayAgent.gameId != null && (
+                <Link to={`/spectate/${displayAgent.gameId}`} style={{
                   flex: 1, padding: '11px', borderRadius: 8, textDecoration: 'none', textAlign: 'center',
                   background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)',
                   color: VIOLET, fontSize: 13, fontWeight: 700, letterSpacing: '0.1em',
@@ -349,7 +424,7 @@ export default function BotWizard({ token, address }) {
                 </Link>
               )}
               <button onClick={handleStop} style={{
-                flex: agentStatus.gameId != null ? '0 0 auto' : 1,
+                flex: displayAgent.gameId != null ? '0 0 auto' : 1,
                 padding: '11px 20px', borderRadius: 8, border: `1px solid ${P}40`,
                 background: `${P}10`, color: P, fontSize: 13, fontWeight: 700, letterSpacing: '0.1em',
                 cursor: 'pointer',
@@ -362,13 +437,13 @@ export default function BotWizard({ token, address }) {
           <div style={{ background: '#060d14', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: 16 }}>
             <div style={{ color: '#334155', fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', marginBottom: 10 }}>AGENT LOGS</div>
             <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {(agentStatus.output || []).slice(-40).map((entry, i) => (
+              {(displayAgent.output || []).slice(-40).map((entry, i) => (
                 <div key={i} style={{ fontSize: 11, fontFamily: 'Space Mono,monospace', color: entry.line?.startsWith('[ERR]') ? '#f87171' : '#475569', lineHeight: 1.5 }}>
                   <span style={{ color: '#1e3050', marginRight: 8 }}>{new Date(entry.ts).toLocaleTimeString()}</span>
                   {entry.line}
                 </div>
               ))}
-              {(!agentStatus.output || agentStatus.output.length === 0) && (
+              {(!displayAgent.output || displayAgent.output.length === 0) && (
                 <div style={{ color: '#1e3050', fontSize: 11, fontFamily: 'Space Mono,monospace' }}>Waiting for output…</div>
               )}
             </div>
