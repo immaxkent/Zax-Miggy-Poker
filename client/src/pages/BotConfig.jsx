@@ -271,24 +271,22 @@ export default function BotWizard({ token, address }) {
     setActivating(true);
     try {
       const body = {
-        keystoreJson:    effectiveKeystoreJson,
+        keystoreJson:     effectiveKeystoreJson,
         keystorePassword: password,
-        config:          buildConfig(),
-        gameId:          effectiveGameId ?? 0,
-        botAddress:      effectiveAddress || null,
-        anthropicApiKey: anthropicKey.trim() || undefined,
+        config:           buildConfig(),
+        gameId:           effectiveGameId || undefined,
+        anthropicApiKey:  anthropicKey.trim() || undefined,
       };
-      const res = await fetch(`${SERVER_URL}/agent/activate`, {
+      const res = await fetch(`${SERVER_URL}/agent/launch`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Poker-Key': SERVER_API_KEY,
-          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Activation failed');
+      if (!res.ok) throw new Error(data.error || 'Launch failed');
     } catch (e) {
       setActivateError(e.message);
     }

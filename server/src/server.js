@@ -241,9 +241,17 @@ app.get('/api/games', (_, res) => {
 app.post('/agent/activate', requireApiKey, async (req, res) => {
   try {
     const auth = req.headers.authorization?.replace('Bearer ', '');
-    if (!auth) return res.status(401).json({ error: 'No token' });
+    // Guard against literal "null" string sent when client token prop is null
+    if (!auth || auth === 'null' || auth === 'undefined') {
+      return res.status(401).json({ error: 'No token — use /agent/launch for JWT-free activation' });
+    }
     const { verifyJWT } = await import('./security.js');
-    const payload = verifyJWT(auth);
+    let payload;
+    try {
+      payload = verifyJWT(auth);
+    } catch {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
     const ownerAddress = payload.sub;
 
     const { keystoreJson, keystorePassword, config: botConfig, gameId, botAddress, anthropicApiKey: clientApiKey } = req.body;

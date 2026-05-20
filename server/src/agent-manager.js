@@ -74,6 +74,12 @@ export function spawnAgent({ ownerAddress, botAddress, keystoreJson, keystorePas
     chunk.toString().split('\n').filter(Boolean).forEach(line => appendLog(`[ERR] ${line}`));
   });
 
+  proc.on('error', (err) => {
+    appendLog(`[ERR] spawn failed: ${err.message}`);
+    entry.status = 'spawn-error';
+    activeAgents.delete(ownerAddress);
+  });
+
   proc.on('exit', (code) => {
     entry.status = code === 0 ? 'exited' : `exited(${code})`;
     appendLog(`Process exited with code ${code}`);
