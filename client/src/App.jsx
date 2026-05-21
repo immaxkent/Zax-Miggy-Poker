@@ -30,14 +30,10 @@ function NavBar({ connected, onlinePlayers, authed }) {
 
   const links = [
     { label: 'HOME',     to: '/',          active: pathname === '/' },
+    { label: 'LOBBY',    to: '/lobby',     active: pathname === '/lobby' || pathname.startsWith('/game') },
     { label: 'RANKINGS', to: '/rankings',  active: pathname === '/rankings' },
     { label: 'BOTS',     to: '/bots',      active: pathname === '/bots' || pathname === '/activate-agent' },
   ];
-  const protectedLinks = [
-    { label: 'LOBBY',    to: '/lobby',     active: pathname === '/lobby' },
-    { label: 'TABLE',    to: '/lobby',     active: pathname.startsWith('/game') },
-  ];
-
   return (
     <nav style={{
       position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1000,
@@ -84,21 +80,6 @@ function NavBar({ connected, onlinePlayers, authed }) {
             {label}
           </Link>
         ))}
-        {authed && (
-          <div style={{ display: 'flex', gap: 36, opacity: 0, animation: 'navFadeIn 10s ease forwards' }}>
-            {protectedLinks.map(({ label, to, active }) => (
-              <Link key={label} to={to} style={{
-                color: active ? G : '#64748b',
-                fontSize: 12, fontWeight: 700, letterSpacing: '0.14em',
-                textDecoration: 'none', paddingBottom: 3,
-                borderBottom: `2px solid ${active ? G : 'transparent'}`,
-                transition: 'color 0.15s, border-color 0.15s',
-              }}>
-                {label}
-              </Link>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Right */}
@@ -295,7 +276,7 @@ function LandingPage() {
             color: '#000', fontSize: 14, fontWeight: 800, letterSpacing: '0.12em',
             boxShadow: `0 0 30px ${G}40`, display: 'flex', alignItems: 'center',
           }}>
-            LAUNCH BOT →
+            JOIN LOBBY WITH BOT →
           </Link>
           <Link to="/bots" style={{
             padding: '14px 32px', borderRadius: 8, textDecoration: 'none',
@@ -470,13 +451,9 @@ function AppRoutes() {
           <Route path="/" element={<LandingPage />} />
 
           <Route path="/lobby" element={
-            !address
-              ? <Navigate to="/" replace />
-              : !authed
-              ? <Navigate to="/" replace />
-              : (gameState && !gameState.tableId?.startsWith('usdc-'))
-                ? <PokerTable myAddress={address?.toLowerCase()} />
-                : <Lobby token={token} address={address} />
+            (gameState && address && !gameState.tableId?.startsWith('usdc-'))
+              ? <PokerTable myAddress={address?.toLowerCase()} />
+              : <Lobby token={token} address={address} />
           } />
 
           <Route path="/game/:gameId" element={

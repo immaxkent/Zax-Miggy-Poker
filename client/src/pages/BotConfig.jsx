@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { ethers } from 'ethers';
-import { Link } from 'react-router-dom';
-import { SERVER_URL, SERVER_API_KEY } from '../utils/web3Config';
+import { useNavigate } from 'react-router-dom';
+import JSZip from 'jszip';
 
 const BG     = '#090d14';
 const G      = '#00e676';
@@ -120,24 +120,25 @@ function DropZone({ file, onFile, hint }) {
   );
 }
 
-export default function BotWizard({ token, address }) {
+export default function BotWizard() {
+  const navigate = useNavigate();
+
   // ── Step 1 — API key ──
   const [anthropicKey, setAnthropicKey] = useState('');
   const [showApiKey, setShowApiKey]     = useState(false);
 
   // ── Step 2 — Wallet ──
-  const [walletMode, setWalletMode]         = useState('generate'); // 'generate' | 'upload'
+  const [walletMode, setWalletMode]         = useState('generate');
   const [password, setPassword]             = useState('');
   const [showPw, setShowPw]                 = useState(false);
   const [generating, setGenerating]         = useState(false);
-  const [encryptProgress, setEncryptProgress] = useState(null); // 0-100 while encrypting
+  const [encryptProgress, setEncryptProgress] = useState(null);
   const [genError, setGenError]             = useState(null);
   const [genWallet, setGenWallet]           = useState(null); // { address, keystoreJson }
   const [keystoreName, setKeystoreName]     = useState(null);
   const [uploadKeystore, setUploadKeystore] = useState(null);
   const [uploadAddress, setUploadAddress]   = useState(null);
   const [uploadError, setUploadError]       = useState(null);
-  const [keystoreDownloaded, setKeystoreDownloaded] = useState(false);
 
   // ── Step 3 — Strategy ──
   const [preset, setPreset]         = useState('gto');
@@ -149,67 +150,9 @@ export default function BotWizard({ token, address }) {
   const [customInstructions, setCustomInstructions] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // ── Step 4 — Game ──
-  const [selectedGameId, setSelectedGameId] = useState(null);
-  const [manualGameId, setManualGameId]     = useState('');
-  const [liveGames, setLiveGames]           = useState([]);
-
-  // ── Activation ──
-  const [activating, setActivating]       = useState(false);
-  const [activateError, setActivateError] = useState(null);
-  const [agentStatus, setAgentStatus]     = useState(null);
-  const [launchResult, setLaunchResult]   = useState(null); // { botAddress, gameId } after successful launch
-  const pollRef    = useRef(null);
-  const botPollRef = useRef(null);
-
-  // JWT-based polling — when MetaMask is connected
-  useEffect(() => {
-    if (!token) return;
-    async function poll() {
-      try {
-        const res = await fetch(`${SERVER_URL}/agent/status`, {
-          headers: { 'X-Poker-Key': SERVER_API_KEY, 'Authorization': `Bearer ${token}` },
-        });
-        const data = await res.json();
-        setAgentStatus(data?.status && data.status !== 'none' ? data : null);
-      } catch { /* ignore */ }
-    }
-    poll();
-    pollRef.current = setInterval(poll, 4000);
-    return () => clearInterval(pollRef.current);
-  }, [token]);
-
-  // Bot-address polling — no JWT required; active after a successful launch
-  useEffect(() => {
-    const addr = launchResult?.botAddress;
-    if (!addr) return;
-    async function poll() {
-      try {
-        const res = await fetch(`${SERVER_URL}/agent/status/${addr}`, {
-          headers: { 'X-Poker-Key': SERVER_API_KEY },
-        });
-        const data = await res.json();
-        console.log('[BotWizard] status poll:', data);
-        if (data?.status && data.status !== 'none') setAgentStatus(data);
-      } catch (e) { console.warn('[BotWizard] status poll error:', e.message); }
-    }
-    poll();
-    botPollRef.current = setInterval(poll, 3000);
-    return () => clearInterval(botPollRef.current);
-  }, [launchResult]);
-
-  // Fetch live games
-  useEffect(() => {
-    async function fetchGames() {
-      try {
-        const res = await fetch(`${SERVER_URL}/api/games`);
-        if (res.ok) setLiveGames(await res.json());
-      } catch { /* ignore */ }
-    }
-    fetchGames();
-    const id = setInterval(fetchGames, 8000);
-    return () => clearInterval(id);
-  }, []);
+  // ── Packaging ──
+  const [packaging, setPackaging] = useState(false);
+  const [packError, setPackError] = useState(null);
 
   // ── Wallet helpers ──
   async function generateWallet() {
@@ -219,29 +162,15 @@ export default function BotWizard({ token, address }) {
     setGenError(null);
     try {
       const wallet = ethers.Wallet.createRandom();
-      // ethers v6: second arg must be a ProgressCallback function, not an options object
       const keystore = await wallet.encrypt(password, (progress) => {
         setEncryptProgress(Math.round(progress * 100));
       });
       setGenWallet({ address: wallet.address, keystoreJson: keystore });
-      setKeystoreDownloaded(false);
     } catch (e) {
       setGenError(e.message || 'Wallet generation failed');
     }
     setEncryptProgress(null);
     setGenerating(false);
-  }
-
-  function downloadKeystore() {
-    if (!genWallet) return;
-    const blob = new Blob([genWallet.keystoreJson], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url;
-    a.download = `bot-${genWallet.address.slice(0, 10).toLowerCase()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setKeystoreDownloaded(true);
   }
 
   function handleUploadKeystore(name, text) {
@@ -264,196 +193,55 @@ export default function BotWizard({ token, address }) {
     setStackDepth(true);
   }
 
-  // ── Derived state ──
-  const effectiveKeystoreJson = walletMode === 'generate' ? genWallet?.keystoreJson : uploadKeystore;
-  const effectiveAddress      = walletMode === 'generate' ? genWallet?.address : uploadAddress;
-  const effectiveGameId       = selectedGameId ?? (manualGameId.trim() ? Number(manualGameId.trim()) : null);
-
-  const step1Done = true; // API key is optional
-  const step2Done = !!effectiveKeystoreJson && !!password;
-  const step3Done = step2Done;
-  const canCreate = step2Done && !activating && !launchResult && agentStatus?.status !== 'running';
-
   function buildConfig() {
     return {
       persona: preset === 'custom' ? 'gto' : preset,
       ...sliders,
       stack_depth_adjustment: stackDepth,
-      deposit_usdc:     Number(depositUsdc)     || 1,
-      max_buy_in_usdc:  Number(maxBuyIn)        || 1,
-      blind_interval:   Number(blindInterval)   || 10,
-      custom_instructions: customInstructions.trim() || undefined,
+      deposit_usdc:    Number(depositUsdc)   || 1,
+      max_buy_in_usdc: Number(maxBuyIn)      || 1,
+      blind_interval:  Number(blindInterval) || 10,
+      ...(anthropicKey.trim() ? { anthropic_api_key: anthropicKey.trim() } : {}),
+      ...(customInstructions.trim() ? { custom_instructions: customInstructions.trim() } : {}),
     };
   }
 
+  // ── Derived ──
+  const effectiveKeystoreJson = walletMode === 'generate' ? genWallet?.keystoreJson : uploadKeystore;
+  const effectiveAddress      = walletMode === 'generate' ? genWallet?.address : uploadAddress;
+  const step2Done = !!effectiveKeystoreJson && !!password;
+  const canCreate = step2Done && !packaging;
+  const accent    = PRESETS[preset]?.color || G;
+
   async function handleCreateBot() {
-    console.log('[BotWizard] CREATE BOT clicked', {
-      canCreate,
-      step2Done,
-      activating,
-      alreadyRunning: agentStatus?.status === 'running',
-      effectiveAddress,
-      effectiveGameId,
-      hasKeystore: !!effectiveKeystoreJson,
-      hasPassword: !!password,
-    });
-    if (!canCreate) {
-      console.warn('[BotWizard] canCreate=false — button should be disabled');
-      return;
-    }
-
-    // Auto-download keystore before launching (single user journey)
-    if (walletMode === 'generate' && genWallet) {
-      console.log('[BotWizard] auto-downloading keystore for', genWallet.address);
-      downloadKeystore();
-    }
-
-    setActivateError(null);
-    setActivating(true);
+    if (!canCreate) return;
+    setPackError(null);
+    setPackaging(true);
     try {
       const config = buildConfig();
-      console.log('[BotWizard] built config:', config);
+      const addrSlug = (effectiveAddress || 'bot').slice(0, 10).toLowerCase();
 
-      const body = {
-        keystoreJson:     effectiveKeystoreJson,
-        keystorePassword: password,
-        config,
-        gameId:           effectiveGameId || undefined,
-        anthropicApiKey:  anthropicKey.trim() || undefined,
-      };
-      console.log('[BotWizard] POST /agent/launch', {
-        url: `${SERVER_URL}/agent/launch`,
-        botAddress: effectiveAddress,
-        gameId: effectiveGameId,
-        keystoreLen: effectiveKeystoreJson?.length,
-      });
+      const zip = new JSZip();
+      zip.file('keystore.json', effectiveKeystoreJson);
+      zip.file('config.json',   JSON.stringify(config, null, 2));
 
-      const res = await fetch(`${SERVER_URL}/agent/launch`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Poker-Key': SERVER_API_KEY,
-        },
-        body: JSON.stringify(body),
-      });
+      const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `bot-${addrSlug}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
 
-      console.log('[BotWizard] /agent/launch HTTP status:', res.status);
-      const data = await res.json();
-      console.log('[BotWizard] /agent/launch response body:', data);
-
-      if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
-
-      console.log('[BotWizard] launch success — botAddress:', data.botAddress, 'gameId:', data.gameId);
-      setLaunchResult({ botAddress: data.botAddress, gameId: data.gameId });
+      // Short pause so the browser download dialog appears before navigation
+      await new Promise(r => setTimeout(r, 400));
+      navigate('/');
     } catch (e) {
-      console.error('[BotWizard] launch failed:', e.message);
-      setActivateError(e.message);
+      setPackError(e.message || 'Failed to package bot');
     }
-    setActivating(false);
+    setPackaging(false);
   }
 
-  async function handleStop() {
-    try {
-      const botAddr = agentStatus?.botAddress || launchResult?.botAddress;
-      console.log('[BotWizard] stopping bot', botAddr);
-      if (token) {
-        await fetch(`${SERVER_URL}/agent`, {
-          method: 'DELETE',
-          headers: { 'X-Poker-Key': SERVER_API_KEY, 'Authorization': `Bearer ${token}` },
-        });
-      }
-    } catch { /* ignore */ }
-    setAgentStatus(null);
-    setLaunchResult(null);
-  }
-
-  // Show running panel if JWT polling confirmed running, OR if we just launched (bot starting up)
-  const isRunning = agentStatus?.status === 'running' || !!launchResult;
-  // Merged data — prefer live agentStatus, fall back to launchResult while agent is starting
-  const displayAgent = agentStatus ?? {
-    botAddress: launchResult?.botAddress,
-    gameId:     launchResult?.gameId ?? null,
-    status:     'starting',
-    output:     [],
-  };
-  const accent = PRESETS[preset]?.color || G;
-
-  // ── Running panel ──
-  if (isRunning) {
-    const statusColor  = displayAgent.status === 'running' ? G : '#f59e0b';
-    const statusLabel  = displayAgent.status === 'running' ? 'RUNNING' : displayAgent.status === 'starting' ? 'STARTING…' : displayAgent.status?.toUpperCase();
-
-    return (
-      <div style={{ minHeight: 'calc(100vh - 60px)', background: BG, fontFamily: "'Space Grotesk','Outfit',sans-serif" }}>
-        <div style={{ maxWidth: 680, margin: '0 auto', padding: '48px 24px 64px' }}>
-          <div style={{ marginBottom: 36 }}>
-            <div style={{ color: '#334155', fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', marginBottom: 8 }}>// AI BOTS</div>
-            <h1 style={{ color: '#fff', fontWeight: 900, fontSize: 28, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1, margin: '0 0 8px' }}>
-              BOT <span style={{ color: statusColor }}>ACTIVE</span>
-            </h1>
-          </div>
-
-          <div style={{ background: '#0d1520', border: `1px solid ${statusColor}30`, borderRadius: 14, padding: 24, marginBottom: 20 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, boxShadow: `0 0 8px ${statusColor}` }} />
-                  <span style={{ color: statusColor, fontSize: 11, fontWeight: 700, letterSpacing: '0.14em' }}>{statusLabel}</span>
-                </div>
-                {displayAgent.botAddress && (
-                  <div style={{ color: '#475569', fontSize: 12, fontFamily: 'Space Mono,monospace' }}>
-                    Bot: {displayAgent.botAddress.slice(0, 8)}…{displayAgent.botAddress.slice(-4)}
-                  </div>
-                )}
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ color: '#334155', fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', marginBottom: 4 }}>GAME ID</div>
-                <div style={{ color: '#fff', fontWeight: 700, fontSize: 16, fontFamily: 'Space Mono,monospace' }}>
-                  {displayAgent.gameId != null ? `#${displayAgent.gameId}` : 'finding game…'}
-                </div>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              {displayAgent.gameId != null && (
-                <Link to={`/spectate/${displayAgent.gameId}`} style={{
-                  flex: 1, padding: '11px', borderRadius: 8, textDecoration: 'none', textAlign: 'center',
-                  background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)',
-                  color: VIOLET, fontSize: 13, fontWeight: 700, letterSpacing: '0.1em',
-                }}>
-                  WATCH GAME
-                </Link>
-              )}
-              <button onClick={handleStop} style={{
-                flex: displayAgent.gameId != null ? '0 0 auto' : 1,
-                padding: '11px 20px', borderRadius: 8, border: `1px solid ${P}40`,
-                background: `${P}10`, color: P, fontSize: 13, fontWeight: 700, letterSpacing: '0.1em',
-                cursor: 'pointer',
-              }}>
-                STOP BOT
-              </button>
-            </div>
-          </div>
-
-          <div style={{ background: '#060d14', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: 16 }}>
-            <div style={{ color: '#334155', fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', marginBottom: 10 }}>AGENT LOGS</div>
-            <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {(displayAgent.output || []).slice(-40).map((entry, i) => (
-                <div key={i} style={{ fontSize: 11, fontFamily: 'Space Mono,monospace', color: entry.line?.startsWith('[ERR]') ? '#f87171' : '#475569', lineHeight: 1.5 }}>
-                  <span style={{ color: '#1e3050', marginRight: 8 }}>{new Date(entry.ts).toLocaleTimeString()}</span>
-                  {entry.line}
-                </div>
-              ))}
-              {(!displayAgent.output || displayAgent.output.length === 0) && (
-                <div style={{ color: '#1e3050', fontSize: 11, fontFamily: 'Space Mono,monospace' }}>Waiting for output…</div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Setup wizard ──
   return (
     <div style={{ minHeight: 'calc(100vh - 60px)', background: BG, fontFamily: "'Space Grotesk','Outfit',sans-serif" }}>
       <div style={{ maxWidth: 960, margin: '0 auto', padding: '48px 24px 80px' }}>
@@ -465,7 +253,7 @@ export default function BotWizard({ token, address }) {
             CREATE <span style={{ color: G }}>YOUR BOT</span>
           </h1>
           <p style={{ color: '#475569', fontSize: 14, lineHeight: 1.6, maxWidth: 520, margin: 0 }}>
-            Configure your AI poker bot. No files to download — it launches directly from your browser.
+            Configure your AI poker agent. When you're done, download the bot ZIP — then use <strong style={{ color: '#94a3b8' }}>JOIN LOBBY WITH BOT</strong> on the home page to launch it into a live game.
           </p>
         </div>
 
@@ -490,7 +278,7 @@ export default function BotWizard({ token, address }) {
                 }
               />
               <div style={{ color: '#334155', fontSize: 11, marginTop: 8, lineHeight: 1.5 }}>
-                Powers Claude-based decisions. Without a key, the bot plays using weighted-random strategy based on its persona.
+                Powers Claude-based decisions. Without a key, the bot plays weighted-random strategy based on its persona.
               </div>
             </div>
 
@@ -498,7 +286,6 @@ export default function BotWizard({ token, address }) {
             <div style={{ background: '#0d1520', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: 24 }}>
               <StepHeader num="02" title="Bot Wallet" done={step2Done} active={true} />
 
-              {/* Mode tabs */}
               <div style={{ display: 'flex', gap: 4, marginBottom: 20, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: 4 }}>
                 {[['generate', 'Generate new'], ['upload', 'Upload existing']].map(([mode, label]) => (
                   <button key={mode} onClick={() => setWalletMode(mode)} style={{
@@ -527,7 +314,9 @@ export default function BotWizard({ token, address }) {
                         }}>{showPw ? '🙈' : '👁'}</button>
                       }
                     />
-                    <div style={{ color: '#334155', fontSize: 10, marginTop: 6 }}>Encrypts the wallet keystore. Keep this safe — you'll need it to recover the wallet.</div>
+                    <div style={{ color: '#334155', fontSize: 10, marginTop: 6 }}>
+                      Encrypts the wallet keystore. You'll need this password to launch the bot.
+                    </div>
                   </div>
 
                   {!genWallet ? (
@@ -537,7 +326,7 @@ export default function BotWizard({ token, address }) {
                         disabled={!password || generating}
                         style={{
                           padding: '11px', borderRadius: 8, cursor: password && !generating ? 'pointer' : 'not-allowed',
-                          background: password && !generating ? `linear-gradient(135deg, #1e3050, #0d1a30)` : 'rgba(255,255,255,0.03)',
+                          background: password && !generating ? 'linear-gradient(135deg, #1e3050, #0d1a30)' : 'rgba(255,255,255,0.03)',
                           border: `1px solid ${password && !generating ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)'}`,
                           color: password && !generating ? '#e2e8f0' : '#1e3050',
                           fontSize: 13, fontWeight: 700, letterSpacing: '0.1em', fontFamily: 'inherit',
@@ -555,29 +344,14 @@ export default function BotWizard({ token, address }) {
                       )}
                     </>
                   ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <div style={{ padding: '12px 16px', borderRadius: 8, background: `${G}0a`, border: `1px solid ${G}25`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <div style={{ color: '#334155', fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', marginBottom: 3 }}>BOT ADDRESS</div>
-                          <div style={{ color: G, fontSize: 12, fontFamily: 'Space Mono,monospace' }}>
-                            {genWallet.address.slice(0, 12)}…{genWallet.address.slice(-6)}
-                          </div>
+                    <div style={{ padding: '12px 16px', borderRadius: 8, background: `${G}0a`, border: `1px solid ${G}25`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ color: '#334155', fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', marginBottom: 3 }}>BOT ADDRESS</div>
+                        <div style={{ color: G, fontSize: 12, fontFamily: 'Space Mono,monospace' }}>
+                          {genWallet.address.slice(0, 14)}…{genWallet.address.slice(-6)}
                         </div>
-                        <div style={{ color: G, fontSize: 18 }}>✓</div>
                       </div>
-                      <button onClick={downloadKeystore} style={{
-                        padding: '10px', borderRadius: 8, cursor: 'pointer',
-                        background: keystoreDownloaded ? `${G}10` : 'rgba(255,255,255,0.03)',
-                        border: `1px solid ${keystoreDownloaded ? `${G}40` : 'rgba(255,255,255,0.1)'}`,
-                        color: keystoreDownloaded ? G : '#64748b',
-                        fontSize: 12, fontWeight: 600, fontFamily: 'inherit', letterSpacing: '0.08em',
-                        transition: 'all 0.2s',
-                      }}>
-                        {keystoreDownloaded ? '✓ KEYSTORE SAVED' : '↓ SAVE KEYSTORE (recommended)'}
-                      </button>
-                      <div style={{ color: '#1e3050', fontSize: 10, textAlign: 'center' }}>
-                        Save your keystore file — it's the only way to recover this wallet later.
-                      </div>
+                      <div style={{ color: G, fontSize: 18 }}>✓</div>
                     </div>
                   )}
                   {genError && <div style={{ color: '#f87171', fontSize: 12 }}>{genError}</div>}
@@ -617,7 +391,7 @@ export default function BotWizard({ token, address }) {
               )}
             </div>
 
-            {/* Step 3 — Strategy sliders */}
+            {/* Step 3 — Strategy */}
             <div style={{ background: '#0d1520', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: 24, opacity: step2Done ? 1 : 0.35, transition: 'opacity 0.2s', pointerEvents: step2Done ? 'auto' : 'none' }}>
               <StepHeader num="03" title="Strategy" done={false} active={step2Done} />
 
@@ -648,7 +422,6 @@ export default function BotWizard({ token, address }) {
                   {showAdvanced ? '▲ hide advanced sliders' : '▼ show all sliders'}
                 </button>
 
-                {/* Stack depth toggle */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
                   <div>
                     <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600, marginBottom: 2 }}>Stack Depth Adjustment</div>
@@ -664,48 +437,10 @@ export default function BotWizard({ token, address }) {
               </div>
             </div>
 
-            {/* Step 4 — Game selection */}
-            <div style={{ background: '#0d1520', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: 24, opacity: step2Done ? 1 : 0.35, transition: 'opacity 0.2s', pointerEvents: step2Done ? 'auto' : 'none' }}>
-              <StepHeader num="04" title="Game (optional)" done={false} active={step2Done} />
-              <div style={{ color: '#475569', fontSize: 12, marginBottom: 14, lineHeight: 1.5 }}>
-                Select a live game to join, or leave blank to auto-discover a joinable game within your configured buy-in range.
-              </div>
-              {liveGames.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
-                  {liveGames.slice(0, 6).map(g => (
-                    <button key={g.gameId} onClick={() => { setSelectedGameId(selectedGameId === g.gameId ? null : g.gameId); setManualGameId(''); }} style={{
-                      padding: '10px 14px', borderRadius: 8, cursor: 'pointer', textAlign: 'left',
-                      background: selectedGameId === g.gameId ? `${VIOLET}15` : 'rgba(255,255,255,0.02)',
-                      border: `1px solid ${selectedGameId === g.gameId ? `${VIOLET}50` : 'rgba(255,255,255,0.07)'}`,
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                      transition: 'all 0.15s',
-                    }}>
-                      <div>
-                        <span style={{ color: '#e2e8f0', fontSize: 12, fontWeight: 600, fontFamily: 'Space Mono,monospace' }}>Game #{g.gameId}</span>
-                        <span style={{ color: '#475569', fontSize: 11, marginLeft: 12 }}>{g.playerCount}/{g.maxSeats} players</span>
-                        {g.stage !== 'waiting' && <span style={{ color: G, fontSize: 10, marginLeft: 8, fontWeight: 700 }}>LIVE</span>}
-                      </div>
-                      <span style={{ color: '#334155', fontSize: 11, fontFamily: 'Space Mono,monospace' }}>
-                        {g.depositAmountUsdc != null ? `${g.depositAmountUsdc} USDC` : '—'}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ color: '#475569', fontSize: 12 }}>or enter game ID:</span>
-                <input type="number" value={manualGameId}
-                  onChange={e => { setManualGameId(e.target.value); setSelectedGameId(null); }}
-                  placeholder="e.g. 5"
-                  style={{ width: 90, padding: '8px 12px', borderRadius: 7, background: '#060d14', border: '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0', fontSize: 13, outline: 'none', fontFamily: 'Space Mono,monospace' }}
-                />
-              </div>
-            </div>
-
             {/* Create button */}
-            {activateError && (
+            {packError && (
               <div style={{ padding: '12px 16px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171', fontSize: 13 }}>
-                {activateError}
+                {packError}
               </div>
             )}
 
@@ -717,12 +452,18 @@ export default function BotWizard({ token, address }) {
               cursor: canCreate ? 'pointer' : 'not-allowed', transition: 'all 0.2s',
               boxShadow: canCreate ? `0 0 40px ${G}25` : 'none',
             }}>
-              {activating ? '⏳ LAUNCHING BOT…' : 'CREATE BOT'}
+              {packaging ? '⏳ PACKAGING…' : '↓ CREATE BOT & DOWNLOAD ZIP'}
             </button>
 
             {!step2Done && (
               <div style={{ color: '#1e3050', fontSize: 12, textAlign: 'center' }}>
                 {!effectiveKeystoreJson ? 'Generate or upload a wallet to continue.' : 'Enter the wallet password to continue.'}
+              </div>
+            )}
+
+            {step2Done && (
+              <div style={{ color: '#334155', fontSize: 11, textAlign: 'center', lineHeight: 1.6 }}>
+                Downloads a ZIP with your keystore + config. Then use <strong style={{ color: '#475569' }}>JOIN LOBBY WITH BOT</strong> on the home page to deploy it.
               </div>
             )}
           </div>
@@ -754,7 +495,7 @@ export default function BotWizard({ token, address }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {[
                   { label: 'DEPOSIT PER GAME', value: depositUsdc, setter: setDepositUsdc, hint: 'How much you stake per game' },
-                  { label: 'MAX AUTO-JOIN', value: maxBuyIn, setter: setMaxBuyIn, hint: 'Skip games above this amount' },
+                  { label: 'MAX AUTO-JOIN',    value: maxBuyIn,    setter: setMaxBuyIn,    hint: 'Skip games above this amount' },
                 ].map(({ label, value, setter, hint }) => (
                   <div key={label}>
                     <div style={{ color: '#475569', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', marginBottom: 5 }}>{label}</div>
@@ -794,7 +535,6 @@ export default function BotWizard({ token, address }) {
                   fontFamily: 'Space Mono,monospace', lineHeight: 1.5,
                 }}
               />
-              <div style={{ color: '#1e3050', fontSize: 10, marginTop: 5 }}>Appended to Claude's system prompt.</div>
             </div>
 
             {/* Config preview */}

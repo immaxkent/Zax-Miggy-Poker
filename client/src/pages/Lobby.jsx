@@ -604,24 +604,28 @@ export default function Lobby({ token, address }) {
     }).filter(Boolean).filter(g => !g.finished && g.players < 8);
   }, [allGamesRaw]);
 
-  // ── Bot status — which game (if any) is this wallet's bot currently in ────────
-  const [myBotGameId, setMyBotGameId] = useState(null);
+  // ── Bot status — polls by bot address stored in sessionStorage ───────────────
+  const [myBotGameId, setMyBotGameId]     = useState(null);
+  const [botAddress]                       = useState(() => sessionStorage.getItem('activeBotAddress'));
+  const [botStatus, setBotStatus]          = useState(null);
+  const [botDismissed, setBotDismissed]    = useState(false);
 
   useEffect(() => {
-    if (!token) return;
-    async function pollBot() {
+    if (!botAddress) return;
+    async function poll() {
       try {
-        const res = await fetch(`${SERVER_URL}/agent/status`, {
-          headers: { 'X-Poker-Key': SERVER_API_KEY, 'Authorization': `Bearer ${token}` },
+        const res = await fetch(`${SERVER_URL}/agent/status/${botAddress}`, {
+          headers: { 'X-Poker-Key': SERVER_API_KEY },
         });
         const data = await res.json();
-        setMyBotGameId(data?.status === 'running' && data.gameId != null ? Number(data.gameId) : null);
+        setBotStatus(data);
+        setMyBotGameId(data?.gameId != null ? Number(data.gameId) : null);
       } catch { /* ignore */ }
     }
-    pollBot();
-    const id = setInterval(pollBot, 4000);
+    poll();
+    const id = setInterval(poll, 3000);
     return () => clearInterval(id);
-  }, [token]);
+  }, [botAddress]);
 
   // ── Live server-side games (for Watch buttons + in-progress badge) ───────────
   const [liveGames, setLiveGames] = useState({});
@@ -936,6 +940,85 @@ export default function Lobby({ token, address }) {
       {showDeposit && <DepositModal onClose={() => setShowDeposit(false)} onDeposited={net => { notifyDeposit(net); setShowDeposit(false); }} />}
       {showCreateUsdc && <CreateUsdcGameModal onClose={() => setShowCreateUsdc(false)} onCreated={id => { navigate(`/game/${id}`, { state: { justCreated: true } }); setShowCreateUsdc(false); }} />}
       {showJoinUsdc && <JoinUsdcGameModal onClose={() => { setShowJoinUsdc(false); setJoinUsdcInitialId(null); }} openGames={openGames} initialGameId={joinUsdcInitialId} />}
+
+      {/* Floating bot status panel */}
+      {botAddress && botStatus && botStatus.status !== 'none' && !botDismissed && (
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 100,
+          background: '#0d1520', border: `1px solid ${G}40`,
+          borderRadius: 14, padding: '16px 20px', minWidth: 280,
+          boxShadow: `0 0 32px ${G}15, 0 8px 32px rgba(0,0,0,0.5)`,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{
+                width: 8, height: 8, borderRadius: '50%', background: G,
+                boxShadow: `0 0 8px ${G}`,
+                animation: botStatus.status === 'running' ? 'pulse 1.2s ease-in-out infinite' : 'none',
+              }} />
+              <span style={{ color: G, fontSize: 11, fontWeight: 800, letterSpacing: '0.14em' }}>BOT ACTIVE</span>
+            </div>
+            <button
+              onClick={() => { setBotDismissed(true); sessionStorage.removeItem('activeBotAddress'); }}
+              style={{ background: 'none', border: 'none', color: '#475569', fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: 0 }}
+            >✕</button>
+          </div>
+
+          <div style={{
+            color: '#475569', fontSize: 11, fontFamily: 'Space Mono, monospace',
+            marginBottom: 10, wordBreak: 'break-all',
+          }}>
+            {botAddress.slice(0, 10)}…{botAddress.slice(-6)}
+          </div>
+
+          <div style={{ marginBottom: 12 }}>
+            {botStatus.gameId != null ? (
+              <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700 }}>
+                IN GAME <span style={{ color: G }}>#{botStatus.gameId}</span>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#64748b', fontSize: 13, fontWeight: 600 }}>
+                <div style={{
+                  width: 6, height: 6, borderRadius: '50%', background: G,
+                  boxShadow: `0 0 6px ${G}`,
+                  animation: 'pulse 1.2s ease-in-out infinite',
+                }} />
+                SEARCHING FOR GAME…
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            {botStatus.gameId != null && (
+              <Link
+                to={`/spectate/${botStatus.gameId}`}
+                style={{
+                  flex: 1, padding: '8px', borderRadius: 7, textDecoration: 'none', textAlign: 'center',
+                  background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)',
+                  color: '#a855f7', fontSize: 12, fontWeight: 700, letterSpacing: '0.1em',
+                }}
+              >
+                👁 WATCH
+              </Link>
+            )}
+            <button
+              onClick={() => { setBotDismissed(true); sessionStorage.removeItem('activeBotAddress'); }}
+              style={{
+                flex: 1, padding: '8px', borderRadius: 7, border: '1px solid rgba(255,255,255,0.1)',
+                background: 'rgba(255,255,255,0.04)', color: '#475569',
+                fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', cursor: 'pointer',
+              }}
+            >DISMISS</button>
+          </div>
+
+          <style>{`
+            @keyframes pulse {
+              0%, 100% { opacity: 1; transform: scale(1); }
+              50% { opacity: 0.5; transform: scale(0.8); }
+            }
+          `}</style>
+        </div>
+      )}
     </div>
   );
 }
