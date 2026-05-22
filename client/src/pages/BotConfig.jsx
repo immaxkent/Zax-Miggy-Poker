@@ -537,6 +537,57 @@ export default function BotWizard() {
               />
             </div>
 
+            {/* How your bot decides */}
+            <div style={{ background: '#0d1520', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: 18 }}>
+              <div style={{ color: '#334155', fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', marginBottom: 14 }}>// HOW YOUR BOT DECIDES</div>
+
+              <p style={{ color: '#475569', fontSize: 11, lineHeight: 1.6, margin: '0 0 14px' }}>
+                Your bot's logic is compiled from the parameters above into a strategy profile
+                {' '}<span style={{ color: '#334155', fontFamily: 'Space Mono,monospace' }}>agent/src/strategy.js</span>.
+              </p>
+
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ color: '#64748b', fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', marginBottom: 6 }}>WITHOUT API KEY</div>
+                <p style={{ color: '#334155', fontSize: 11, lineHeight: 1.6, margin: 0 }}>
+                  Weighted action probabilities only. Your persona sets how often it raises, folds, or checks — but it cannot see its cards or the board.
+                </p>
+              </div>
+
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 14 }}>
+                <div style={{ color: G, fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', marginBottom: 8 }}>WITH YOUR ANTHROPIC KEY</div>
+                <p style={{ color: '#475569', fontSize: 11, lineHeight: 1.6, margin: '0 0 10px' }}>
+                  Claude Haiku reads the full game state on every decision and acts according to your strategy profile:
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {[
+                    'Hole cards & community cards',
+                    'Street — pre-flop / flop / turn / river',
+                    'Pot, amount to call, current bet',
+                    'Stack & stack-to-pot ratio (SPR)',
+                    'Position: dealer / SB / BB',
+                    'Each opponent: chips, last action, all-in',
+                    'Valid actions for this turn',
+                  ].map(item => (
+                    <div key={item} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                      <span style={{ color: G, fontSize: 10, marginTop: 1, flexShrink: 0 }}>·</span>
+                      <span style={{ color: '#334155', fontSize: 11, lineHeight: 1.5 }}>{item}</span>
+                    </div>
+                  ))}
+                </div>
+                <p style={{ color: '#334155', fontSize: 11, lineHeight: 1.6, margin: '10px 0 0' }}>
+                  Your sliders become Claude's instruction set — it plays your style with genuine hand evaluation.
+                </p>
+              </div>
+
+              <div style={{
+                marginTop: 14, padding: '8px 12px', borderRadius: 8,
+                background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
+                color: '#334155', fontSize: 10, lineHeight: 1.6,
+              }}>
+                Each bot requires its own Anthropic key — billed directly to your account. Without one, the bot still runs using persona-weighted decisions.
+              </div>
+            </div>
+
             {/* Config preview */}
             <div style={{ background: '#060d14', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 12, padding: 14, maxHeight: 200, overflow: 'auto' }}>
               <div style={{ color: '#1e3050', fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', marginBottom: 8 }}>CONFIG PREVIEW</div>

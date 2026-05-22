@@ -114,13 +114,19 @@ export default function LaunchBot() {
     setError(null);
 
     try {
+      // Extract Anthropic key from config (baked in via wizard) — never falls back to server key
+      const anthropicApiKey = parsed.config?.anthropic_api_key || '';
+      const configWithoutKey = { ...parsed.config };
+      delete configWithoutKey.anthropic_api_key;
+
       const res = await fetch(`${SERVER_URL}/agent/launch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Poker-Key': SERVER_API_KEY },
         body: JSON.stringify({
           keystoreJson:     parsed.keystoreJson,
           keystorePassword: password,
-          config:           parsed.config,
+          config:           configWithoutKey,
+          ...(anthropicApiKey ? { anthropicApiKey } : {}),
         }),
       });
       const data = await res.json();

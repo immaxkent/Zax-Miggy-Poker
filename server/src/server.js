@@ -272,7 +272,7 @@ app.post('/agent/activate', requireApiKey, async (req, res) => {
         serverUrl:       config.server.serverUrl || `http://localhost:${config.server.port}`,
         socketUrl:       config.server.socketUrl || `http://localhost:${config.server.port}`,
         apiKey:          config.server.apiKey,
-        anthropicApiKey: clientApiKey || process.env.ANTHROPIC_API_KEY || '',
+        anthropicApiKey: clientApiKey || '',  // never fall back to server key
         rpcUrl:          config.chain.rpcUrl,
         usdcAddress:     config.chain.usdcAddress,
         vaultAddress:    config.chain.zaxMiggyVaultAddress,
@@ -347,7 +347,7 @@ app.post('/agent/launch', requireApiKey, (req, res) => {
         serverUrl:       config.server.serverUrl || `http://localhost:${config.server.port}`,
         socketUrl:       config.server.socketUrl || `http://localhost:${config.server.port}`,
         apiKey:          config.server.apiKey,
-        anthropicApiKey: clientApiKey || process.env.ANTHROPIC_API_KEY || '',
+        anthropicApiKey: clientApiKey || '',  // never fall back to server key
         rpcUrl:          config.chain.rpcUrl,
         usdcAddress:     config.chain.usdcAddress,
         vaultAddress:    config.chain.zaxMiggyVaultAddress,
