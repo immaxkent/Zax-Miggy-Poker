@@ -282,7 +282,7 @@ export default function LaunchBot() {
               boxShadow: canLaunch ? `0 0 24px ${G}30` : 'none',
             }}
           >
-            {launching ? 'LAUNCHING…' : 'JOIN LOBBY WITH BOT →'}
+            {launching ? 'VERIFYING & LAUNCHING…' : 'JOIN LOBBY WITH BOT →'}
           </button>
 
           <p style={{ color: '#334155', fontSize: 11, textAlign: 'center', margin: 0 }}>
