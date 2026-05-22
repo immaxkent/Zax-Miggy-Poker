@@ -745,42 +745,6 @@ export default function Lobby({ token, address }) {
           </div>
         </div>
 
-        {/* Active bots banner */}
-        {activeBots.length > 0 && (
-          <div style={{
-            marginBottom: 20, padding: '12px 16px',
-            background: `${G}08`, border: `1px solid ${G}25`, borderRadius: 10,
-            display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap',
-          }}>
-            <div style={{ color: G, fontSize: 11, fontWeight: 800, letterSpacing: '0.14em', whiteSpace: 'nowrap', paddingTop: 2 }}>
-              🤖 {activeBots.length} BOT{activeBots.length > 1 ? 'S' : ''} ACTIVE
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, flex: 1 }}>
-              {activeBots.map(bot => (
-                <div key={bot.ownerAddress} style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '4px 10px', borderRadius: 6,
-                  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-                }}>
-                  <div style={{
-                    width: 5, height: 5, borderRadius: '50%',
-                    background: bot.status === 'running' ? G : '#64748b',
-                    boxShadow: bot.status === 'running' ? `0 0 5px ${G}` : 'none',
-                  }} />
-                  <span style={{ color: '#94a3b8', fontSize: 11, fontFamily: 'Space Mono, monospace' }}>
-                    {bot.ownerAddress?.slice(0, 8)}…
-                  </span>
-                  {bot.gameId != null ? (
-                    <span style={{ color: G, fontSize: 11, fontWeight: 700 }}>game #{bot.gameId}</span>
-                  ) : (
-                    <span style={{ color: '#475569', fontSize: 11 }}>searching</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Search + filters */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 0, alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{
@@ -964,6 +928,112 @@ export default function Lobby({ token, address }) {
         </div>
       </div>
 
+      {/* Active Bots section */}
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px 48px' }}>
+        <div style={{ paddingTop: 48, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 20 }}>
+            <div>
+              <div style={{ color: '#334155', fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', marginBottom: 6 }}>// BOTS · BASE</div>
+              <h2 style={{ color: '#fff', fontWeight: 900, fontSize: 22, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                ACTIVE <span style={{ color: G }}>BOTS</span>
+                {activeBots.length > 0 && (
+                  <span style={{ color: '#334155', fontSize: 13, fontWeight: 600, marginLeft: 12 }}>{activeBots.length} RUNNING</span>
+                )}
+              </h2>
+            </div>
+          </div>
+
+          {activeBots.length > 0 ? (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  {['ADDRESS', 'STATUS', 'GAME', 'UPTIME', 'W / L', ''].map(h => (
+                    <th key={h} style={{
+                      padding: '10px 16px', textAlign: 'left',
+                      color: '#334155', fontSize: 10, fontWeight: 700, letterSpacing: '0.16em',
+                    }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {activeBots.map(bot => {
+                  const isRunning = bot.status === 'running';
+                  const uptimeSecs = bot.startedAt ? Math.floor((Date.now() - bot.startedAt) / 1000) : null;
+                  const uptime = uptimeSecs == null ? '—'
+                    : uptimeSecs < 60 ? `${uptimeSecs}s`
+                    : uptimeSecs < 3600 ? `${Math.floor(uptimeSecs / 60)}m`
+                    : `${Math.floor(uptimeSecs / 3600)}h ${Math.floor((uptimeSecs % 3600) / 60)}m`;
+
+                  return (
+                    <tr key={bot.ownerAddress}
+                      style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.15s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <td style={{ padding: '14px 16px' }}>
+                        <span style={{ color: '#94a3b8', fontSize: 12, fontFamily: 'Space Mono, monospace' }}>
+                          {bot.ownerAddress?.slice(0, 10)}…{bot.ownerAddress?.slice(-6)}
+                        </span>
+                      </td>
+                      <td style={{ padding: '14px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                          <div style={{
+                            width: 7, height: 7, borderRadius: '50%',
+                            background: isRunning ? G : '#475569',
+                            boxShadow: isRunning ? `0 0 6px ${G}` : 'none',
+                            animation: isRunning && bot.gameId == null ? 'pulse 1.5s ease-in-out infinite' : 'none',
+                          }} />
+                          <span style={{ color: isRunning ? G : '#475569', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em' }}>
+                            {isRunning ? (bot.gameId != null ? 'IN GAME' : 'SEARCHING') : bot.status?.toUpperCase()}
+                          </span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '14px 16px' }}>
+                        {bot.gameId != null ? (
+                          <Link to={`/spectate/${bot.gameId}`} style={{
+                            color: '#a855f7', fontSize: 12, fontWeight: 700,
+                            textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 5,
+                          }}>
+                            #{bot.gameId} <span style={{ fontSize: 10, opacity: 0.7 }}>👁</span>
+                          </Link>
+                        ) : (
+                          <span style={{ color: '#334155', fontSize: 12 }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '14px 16px', color: '#64748b', fontSize: 12, fontFamily: 'Space Mono, monospace' }}>
+                        {uptime}
+                      </td>
+                      <td style={{ padding: '14px 16px', color: '#334155', fontSize: 12, fontFamily: 'Space Mono, monospace' }}>
+                        — / —
+                      </td>
+                      <td style={{ padding: '14px 16px' }}>
+                        {bot.gameId != null && (
+                          <Link to={`/spectate/${bot.gameId}`} style={{
+                            padding: '6px 14px', borderRadius: 6, textDecoration: 'none',
+                            background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)',
+                            color: '#a855f7', fontSize: 11, fontWeight: 700, letterSpacing: '0.1em',
+                          }}>WATCH</Link>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <div style={{
+              padding: '32px 24px', borderRadius: 12, textAlign: 'center',
+              background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.07)',
+            }}>
+              <div style={{ color: '#334155', fontSize: 13, marginBottom: 6 }}>No bots running right now.</div>
+              <div style={{ color: '#1e3050', fontSize: 12 }}>
+                <Link to="/launch" style={{ color: G, textDecoration: 'none', fontWeight: 700 }}>Launch one →</Link>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Tournaments section (visual) */}
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '48px 24px 60px' }}>
         <div style={{ color: '#334155', fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', marginBottom: 8 }}>// TOURNAMENTS</div>
@@ -1007,9 +1077,9 @@ export default function Lobby({ token, address }) {
       {showCreateUsdc && <CreateUsdcGameModal onClose={() => setShowCreateUsdc(false)} onCreated={id => { navigate(`/game/${id}`, { state: { justCreated: true } }); setShowCreateUsdc(false); }} />}
       {showJoinUsdc && <JoinUsdcGameModal onClose={() => { setShowJoinUsdc(false); setJoinUsdcInitialId(null); }} openGames={openGames} initialGameId={joinUsdcInitialId} />}
 
-      {/* Floating bot status panel */}
-      {botAddress && !botDismissed && (() => {
-        const isOwner = address && address.toLowerCase() === botAddress.toLowerCase();
+      {/* Floating bot status panel — owner only (MetaMask address matches bot address) */}
+      {botAddress && !botDismissed && address && address.toLowerCase() === botAddress.toLowerCase() && (() => {
+        const isOwner = true;
         const st = botStatus?.status;
         const isRunning = st === 'running';
         const isStopped = !st || st === 'none' || st?.startsWith('exited') || st === 'spawn-error';
