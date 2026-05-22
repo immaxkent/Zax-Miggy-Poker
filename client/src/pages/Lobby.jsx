@@ -609,23 +609,53 @@ export default function Lobby({ token, address }) {
   const [botAddress]                       = useState(() => sessionStorage.getItem('activeBotAddress'));
   const [botStatus, setBotStatus]          = useState(null);
   const [botDismissed, setBotDismissed]    = useState(false);
+  const [showBotLogs, setShowBotLogs]      = useState(false);
 
   useEffect(() => {
     if (!botAddress) return;
+    console.log(`[BOT] tracking ${botAddress.slice(0, 10)}… — polling every 3s`);
+    let lastStatus = null;
     async function poll() {
       try {
         const res = await fetch(`${SERVER_URL}/agent/status/${botAddress}`, {
           headers: { 'X-Poker-Key': SERVER_API_KEY },
         });
         const data = await res.json();
+        if (data.status !== lastStatus) {
+          console.log(`[BOT] ${botAddress.slice(0, 10)}… status: ${data.status}${data.gameId != null ? ` | game #${data.gameId}` : ''}`);
+          lastStatus = data.status;
+        }
         setBotStatus(data);
         setMyBotGameId(data?.gameId != null ? Number(data.gameId) : null);
-      } catch { /* ignore */ }
+      } catch (e) {
+        console.warn('[BOT] poll failed:', e.message);
+      }
     }
     poll();
     const id = setInterval(poll, 3000);
     return () => clearInterval(id);
   }, [botAddress]);
+
+  // ── All active bots list (visible to everyone) ────────────────────────────────
+  const [activeBots, setActiveBots] = useState([]);
+
+  useEffect(() => {
+    async function fetchBots() {
+      try {
+        const res = await fetch(`${SERVER_URL}/agent/list`, {
+          headers: { 'X-Poker-Key': SERVER_API_KEY },
+        });
+        if (res.ok) {
+          const bots = await res.json();
+          console.log(`[BOTS] ${bots.length} active:`, bots.map(b => `${b.ownerAddress?.slice(0,8)} ${b.status}`).join(', ') || 'none');
+          setActiveBots(bots);
+        }
+      } catch { /* ignore */ }
+    }
+    fetchBots();
+    const id = setInterval(fetchBots, 4000);
+    return () => clearInterval(id);
+  }, []);
 
   // ── Live server-side games (for Watch buttons + in-progress badge) ───────────
   const [liveGames, setLiveGames] = useState({});
@@ -714,6 +744,42 @@ export default function Lobby({ token, address }) {
             )}
           </div>
         </div>
+
+        {/* Active bots banner */}
+        {activeBots.length > 0 && (
+          <div style={{
+            marginBottom: 20, padding: '12px 16px',
+            background: `${G}08`, border: `1px solid ${G}25`, borderRadius: 10,
+            display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap',
+          }}>
+            <div style={{ color: G, fontSize: 11, fontWeight: 800, letterSpacing: '0.14em', whiteSpace: 'nowrap', paddingTop: 2 }}>
+              🤖 {activeBots.length} BOT{activeBots.length > 1 ? 'S' : ''} ACTIVE
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, flex: 1 }}>
+              {activeBots.map(bot => (
+                <div key={bot.ownerAddress} style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '4px 10px', borderRadius: 6,
+                  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+                }}>
+                  <div style={{
+                    width: 5, height: 5, borderRadius: '50%',
+                    background: bot.status === 'running' ? G : '#64748b',
+                    boxShadow: bot.status === 'running' ? `0 0 5px ${G}` : 'none',
+                  }} />
+                  <span style={{ color: '#94a3b8', fontSize: 11, fontFamily: 'Space Mono, monospace' }}>
+                    {bot.ownerAddress?.slice(0, 8)}…
+                  </span>
+                  {bot.gameId != null ? (
+                    <span style={{ color: G, fontSize: 11, fontWeight: 700 }}>game #{bot.gameId}</span>
+                  ) : (
+                    <span style={{ color: '#475569', fontSize: 11 }}>searching</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Search + filters */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 0, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -942,83 +1008,125 @@ export default function Lobby({ token, address }) {
       {showJoinUsdc && <JoinUsdcGameModal onClose={() => { setShowJoinUsdc(false); setJoinUsdcInitialId(null); }} openGames={openGames} initialGameId={joinUsdcInitialId} />}
 
       {/* Floating bot status panel */}
-      {botAddress && botStatus && botStatus.status !== 'none' && !botDismissed && (
-        <div style={{
-          position: 'fixed', bottom: 24, right: 24, zIndex: 100,
-          background: '#0d1520', border: `1px solid ${G}40`,
-          borderRadius: 14, padding: '16px 20px', minWidth: 280,
-          boxShadow: `0 0 32px ${G}15, 0 8px 32px rgba(0,0,0,0.5)`,
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{
-                width: 8, height: 8, borderRadius: '50%', background: G,
-                boxShadow: `0 0 8px ${G}`,
-                animation: botStatus.status === 'running' ? 'pulse 1.2s ease-in-out infinite' : 'none',
-              }} />
-              <span style={{ color: G, fontSize: 11, fontWeight: 800, letterSpacing: '0.14em' }}>BOT ACTIVE</span>
-            </div>
-            <button
-              onClick={() => { setBotDismissed(true); sessionStorage.removeItem('activeBotAddress'); }}
-              style={{ background: 'none', border: 'none', color: '#475569', fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: 0 }}
-            >✕</button>
-          </div>
+      {botAddress && !botDismissed && (() => {
+        const isOwner = address && address.toLowerCase() === botAddress.toLowerCase();
+        const st = botStatus?.status;
+        const isRunning = st === 'running';
+        const isStopped = !st || st === 'none' || st?.startsWith('exited') || st === 'spawn-error';
+        const dotColor  = isRunning ? G : isStopped ? '#ef4444' : '#f59e0b';
+        const dotGlow   = isRunning ? `0 0 8px ${G}` : isStopped ? '0 0 8px #ef4444' : 'none';
+        const statusLabel = !st         ? 'CONNECTING…'
+          : st === 'none'               ? 'NOT RUNNING'
+          : st === 'running'            ? (botStatus.gameId != null ? `GAME #${botStatus.gameId}` : 'SEARCHING…')
+          : st === 'spawn-error'        ? 'SPAWN ERROR'
+          : st?.startsWith('exited')    ? `STOPPED (${st})`
+          : st.toUpperCase();
 
+        return (
           <div style={{
-            color: '#475569', fontSize: 11, fontFamily: 'Space Mono, monospace',
-            marginBottom: 10, wordBreak: 'break-all',
+            position: 'fixed', bottom: 24, right: 24, zIndex: 100,
+            background: '#0d1520', border: `1px solid ${isRunning ? `${G}40` : 'rgba(255,255,255,0.1)'}`,
+            borderRadius: 14, padding: '16px 20px',
+            width: isOwner && showBotLogs ? 380 : 300,
+            boxShadow: `0 0 32px ${isRunning ? `${G}15` : 'transparent'}, 0 8px 32px rgba(0,0,0,0.5)`,
+            transition: 'width 0.2s',
           }}>
-            {botAddress.slice(0, 10)}…{botAddress.slice(-6)}
-          </div>
-
-          <div style={{ marginBottom: 12 }}>
-            {botStatus.gameId != null ? (
-              <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700 }}>
-                IN GAME <span style={{ color: G }}>#{botStatus.gameId}</span>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#64748b', fontSize: 13, fontWeight: 600 }}>
+            {/* Header row */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{
-                  width: 6, height: 6, borderRadius: '50%', background: G,
-                  boxShadow: `0 0 6px ${G}`,
-                  animation: 'pulse 1.2s ease-in-out infinite',
+                  width: 8, height: 8, borderRadius: '50%', background: dotColor,
+                  boxShadow: dotGlow,
+                  animation: isRunning && !botStatus?.gameId ? 'pulse 1.2s ease-in-out infinite' : 'none',
                 }} />
-                SEARCHING FOR GAME…
+                <span style={{ color: isRunning ? G : '#64748b', fontSize: 11, fontWeight: 800, letterSpacing: '0.14em' }}>
+                  {isOwner ? 'MY BOT' : 'BOT'}
+                </span>
+                {isOwner && (
+                  <span style={{
+                    fontSize: 9, padding: '2px 6px', borderRadius: 4,
+                    background: 'rgba(0,180,216,0.12)', border: '1px solid rgba(0,180,216,0.3)',
+                    color: '#00b4d8', fontWeight: 700, letterSpacing: '0.1em',
+                  }}>OWNER</span>
+                )}
               </div>
-            )}
-          </div>
+              <button
+                onClick={() => { setBotDismissed(true); sessionStorage.removeItem('activeBotAddress'); }}
+                style={{ background: 'none', border: 'none', color: '#475569', fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: 0 }}
+              >✕</button>
+            </div>
 
-          <div style={{ display: 'flex', gap: 8 }}>
-            {botStatus.gameId != null && (
-              <Link
-                to={`/spectate/${botStatus.gameId}`}
-                style={{
+            {/* Address */}
+            <div style={{ color: '#334155', fontSize: 10, fontFamily: 'Space Mono, monospace', marginBottom: 8 }}>
+              {botAddress.slice(0, 14)}…{botAddress.slice(-6)}
+            </div>
+
+            {/* Status line */}
+            <div style={{ marginBottom: 12, fontSize: 13, fontWeight: 700, color: isRunning ? '#e2e8f0' : '#475569' }}>
+              {statusLabel}
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              {botStatus?.gameId != null && (
+                <Link to={`/spectate/${botStatus.gameId}`} style={{
                   flex: 1, padding: '8px', borderRadius: 7, textDecoration: 'none', textAlign: 'center',
                   background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)',
                   color: '#a855f7', fontSize: 12, fontWeight: 700, letterSpacing: '0.1em',
+                }}>👁 WATCH</Link>
+              )}
+              {isOwner && (
+                <button onClick={() => setShowBotLogs(v => !v)} style={{
+                  flex: 1, padding: '8px', borderRadius: 7,
+                  background: showBotLogs ? `${G}18` : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${showBotLogs ? `${G}40` : 'rgba(255,255,255,0.1)'}`,
+                  color: showBotLogs ? G : '#475569',
+                  fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', cursor: 'pointer',
+                }}>LOGS {showBotLogs ? '▲' : '▼'}</button>
+              )}
+              <button
+                onClick={() => { setBotDismissed(true); sessionStorage.removeItem('activeBotAddress'); }}
+                style={{
+                  flex: botStatus?.gameId == null && !isOwner ? 1 : 0, padding: '8px 12px', borderRadius: 7,
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  background: 'rgba(255,255,255,0.04)', color: '#475569',
+                  fontSize: 12, fontWeight: 700, cursor: 'pointer',
                 }}
-              >
-                👁 WATCH
-              </Link>
-            )}
-            <button
-              onClick={() => { setBotDismissed(true); sessionStorage.removeItem('activeBotAddress'); }}
-              style={{
-                flex: 1, padding: '8px', borderRadius: 7, border: '1px solid rgba(255,255,255,0.1)',
-                background: 'rgba(255,255,255,0.04)', color: '#475569',
-                fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', cursor: 'pointer',
-              }}
-            >DISMISS</button>
-          </div>
+              >DISMISS</button>
+            </div>
 
-          <style>{`
-            @keyframes pulse {
-              0%, 100% { opacity: 1; transform: scale(1); }
-              50% { opacity: 0.5; transform: scale(0.8); }
-            }
-          `}</style>
-        </div>
-      )}
+            {/* Owner log panel */}
+            {isOwner && showBotLogs && (
+              <div style={{
+                marginTop: 12, padding: '8px 10px', borderRadius: 8,
+                background: '#060d14', border: '1px solid rgba(255,255,255,0.06)',
+                maxHeight: 160, overflowY: 'auto',
+              }}>
+                {(!botStatus?.output?.length) ? (
+                  <div style={{ color: '#334155', fontSize: 11 }}>No logs yet.</div>
+                ) : (
+                  botStatus.output.slice(-20).map((entry, i) => (
+                    <div key={i} style={{
+                      color: entry.line?.startsWith('[ERR]') ? '#f87171' : '#475569',
+                      fontSize: 10, fontFamily: 'Space Mono, monospace',
+                      lineHeight: 1.5, wordBreak: 'break-all',
+                    }}>
+                      {entry.line}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            <style>{`
+              @keyframes pulse {
+                0%, 100% { opacity: 1; transform: scale(1); }
+                50% { opacity: 0.5; transform: scale(0.8); }
+              }
+            `}</style>
+          </div>
+        );
+      })()}
     </div>
   );
 }

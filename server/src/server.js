@@ -39,7 +39,7 @@ import {
   getLeaderboard,
 } from './security.js';
 import { PokerTable } from './poker-engine.js';
-import { spawnAgent, killAgent, getAgentStatus, getAgentStatusByBotAddress } from './agent-manager.js';
+import { spawnAgent, killAgent, getAgentStatus, getAgentStatusByBotAddress, listAgents } from './agent-manager.js';
 
 // ─── Validate env on boot ─────────────────────────────────────────────────────
 validateConfig();
@@ -362,10 +362,15 @@ app.post('/agent/launch', requireApiKey, (req, res) => {
   }
 });
 
-// GET /agent/status/:botAddress — poll agent state by bot address; no JWT needed
+// GET /agent/status/:botAddress — poll agent state + logs by bot address; no JWT needed
 app.get('/agent/status/:botAddress', requireApiKey, (req, res) => {
   const status = getAgentStatusByBotAddress(req.params.botAddress.toLowerCase());
   res.json(status ?? { status: 'none' });
+});
+
+// GET /agent/list — all currently active agent summaries; no JWT needed
+app.get('/agent/list', requireApiKey, (req, res) => {
+  res.json(listAgents());
 });
 
 app.post('/ops/hygiene', requireApiKey, (_, res) => {
