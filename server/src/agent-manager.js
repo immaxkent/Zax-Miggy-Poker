@@ -77,13 +77,15 @@ export function spawnAgent({ ownerAddress, botAddress, keystoreJson, keystorePas
   proc.on('error', (err) => {
     appendLog(`[ERR] spawn failed: ${err.message}`);
     entry.status = 'spawn-error';
-    activeAgents.delete(ownerAddress);
+    // Keep entry for 2 minutes so logs remain readable after a crash
+    setTimeout(() => activeAgents.delete(ownerAddress), 120_000);
   });
 
   proc.on('exit', (code) => {
     entry.status = code === 0 ? 'exited' : `exited(${code})`;
-    appendLog(`Process exited with code ${code}`);
-    activeAgents.delete(ownerAddress);
+    appendLog(`[EXIT] Process exited with code ${code}`);
+    // Keep entry for 2 minutes so logs remain readable after exit
+    setTimeout(() => activeAgents.delete(ownerAddress), 120_000);
   });
 
   activeAgents.set(ownerAddress, entry);
