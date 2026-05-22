@@ -317,7 +317,7 @@ app.delete('/agent', requireApiKey, async (req, res) => {
 });
 
 // POST /agent/launch — launch a bot without JWT; keystore IS the proof of ownership
-app.post('/agent/launch', requireApiKey, async (req, res) => {
+app.post('/agent/launch', requireApiKey, (req, res) => {
   try {
     const { keystoreJson, keystorePassword, config: botConfig, gameId, anthropicApiKey: clientApiKey } = req.body;
     if (!keystoreJson || !keystorePassword) {
@@ -332,13 +332,6 @@ app.post('/agent/launch', requireApiKey, async (req, res) => {
       botAddress = '0x' + ks.address.replace(/^0x/i, '');
     } catch {
       return res.status(400).json({ error: 'Invalid keystore JSON' });
-    }
-
-    // Validate password before spawning — decrypt keystore to confirm ownership
-    try {
-      await ethers.Wallet.fromEncryptedJson(keystoreJson, keystorePassword);
-    } catch {
-      return res.status(400).json({ error: 'Invalid keystore password' });
     }
 
     const resolvedGameId = gameId ? Number(gameId) : null;

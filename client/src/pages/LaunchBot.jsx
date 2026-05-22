@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import JSZip from 'jszip';
+import { ethers } from 'ethers';
 import { SERVER_URL, SERVER_API_KEY } from '../utils/web3Config';
 
 const G  = '#00e676';
@@ -114,6 +115,16 @@ export default function LaunchBot() {
     setError(null);
 
     try {
+      // Validate password client-side first — avoids blocking the server's event loop
+      // (ethers scrypt is CPU-bound; running it in the browser keeps the server responsive)
+      try {
+        await ethers.Wallet.fromEncryptedJson(parsed.keystoreJson, password);
+      } catch {
+        setError('Incorrect keystore password');
+        setLaunching(false);
+        return;
+      }
+
       // Extract Anthropic key from config (baked in via wizard) — never falls back to server key
       const anthropicApiKey = parsed.config?.anthropic_api_key || '';
       const configWithoutKey = { ...parsed.config };
@@ -282,7 +293,7 @@ export default function LaunchBot() {
               boxShadow: canLaunch ? `0 0 24px ${G}30` : 'none',
             }}
           >
-            {launching ? 'VERIFYING & LAUNCHING…' : 'JOIN LOBBY WITH BOT →'}
+            {launching ? 'VERIFYING PASSWORD…' : 'JOIN LOBBY WITH BOT →'}
           </button>
 
           <p style={{ color: '#334155', fontSize: 11, textAlign: 'center', margin: 0 }}>
