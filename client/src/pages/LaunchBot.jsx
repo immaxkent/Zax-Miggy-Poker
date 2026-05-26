@@ -1,8 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import JSZip from 'jszip';
-import { ethers } from 'ethers';
 import { SERVER_URL, SERVER_API_KEY } from '../utils/web3Config';
+import { parseBotZipFile, verifyKeystorePassword } from '../utils/botKeystore';
 
 const G  = '#00e676';
 const BG = '#090d14';
@@ -75,27 +74,12 @@ export default function LaunchBot() {
     setError(null);
 
     try {
-      const zip = await JSZip.loadAsync(file);
-
-      const ksFile = zip.file('keystore.json');
-      if (!ksFile) throw new Error('ZIP is missing keystore.json');
-      const keystoreJson = await ksFile.async('string');
-
-      let ks;
-      try { ks = JSON.parse(keystoreJson); } catch {
-        throw new Error('keystore.json is not valid JSON');
-      }
-      if (!ks.address) throw new Error('keystore.json is missing the "address" field');
-
-      let config = {};
-      const cfgFile = zip.file('config.json');
-      if (cfgFile) {
-        try { config = JSON.parse(await cfgFile.async('string')); } catch {
-          throw new Error('config.json is not valid JSON');
-        }
-      }
-
-      setParsed({ keystoreJson, config, botAddress: ks.address.toLowerCase() });
+      const bot = await parseBotZipFile(file);
+      setParsed({
+        keystoreJson: bot.keystoreJson,
+        config: bot.config,
+        botAddress: bot.address.toLowerCase(),
+      });
     } catch (e) {
       setParseError(e.message || 'Failed to read ZIP');
     }
@@ -118,7 +102,7 @@ export default function LaunchBot() {
       // Validate password client-side first — avoids blocking the server's event loop
       // (ethers scrypt is CPU-bound; running it in the browser keeps the server responsive)
       try {
-        await ethers.Wallet.fromEncryptedJson(parsed.keystoreJson, password);
+        await verifyKeystorePassword(parsed.keystoreJson, password);
       } catch {
         setError('Incorrect keystore password');
         setLaunching(false);

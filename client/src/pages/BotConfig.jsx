@@ -2,6 +2,11 @@ import { useState, useRef } from 'react';
 import { ethers } from 'ethers';
 import { useNavigate } from 'react-router-dom';
 import JSZip from 'jszip';
+import {
+  parseKeystoreJson,
+  parseBotZipFile,
+  verifyKeystorePassword,
+} from '../utils/botKeystore';
 
 const BG     = '#090d14';
 const G      = '#00e676';
@@ -85,29 +90,28 @@ function InputField({ type = 'text', value, onChange, placeholder, suffix, style
   );
 }
 
-function DropZone({ file, onFile, hint }) {
+function DropZone({ file, onFile, hint, busy }) {
   const inputRef = useRef(null);
   const [drag, setDrag] = useState(false);
 
-  function readFile(f) {
-    const reader = new FileReader();
-    reader.onload = ev => onFile(f.name, ev.target.result);
-    reader.readAsText(f);
+  function pickFile(f) {
+    if (f && !busy) onFile(f);
   }
 
   return (
     <div
-      onClick={() => inputRef.current.click()}
+      onClick={() => !busy && inputRef.current.click()}
       onDragOver={e => { e.preventDefault(); setDrag(true); }}
       onDragLeave={() => setDrag(false)}
-      onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) readFile(f); }}
+      onDrop={e => { e.preventDefault(); setDrag(false); pickFile(e.dataTransfer.files[0]); }}
       style={{
-        padding: '20px', borderRadius: 10, cursor: 'pointer', textAlign: 'center', transition: 'all 0.15s',
+        padding: '20px', borderRadius: 10, cursor: busy ? 'wait' : 'pointer', textAlign: 'center', transition: 'all 0.15s',
         background: drag ? `${VIOLET}10` : file ? `${G}08` : 'rgba(255,255,255,0.02)',
         border: `2px dashed ${drag ? VIOLET : file ? G : 'rgba(255,255,255,0.12)'}`,
+        opacity: busy ? 0.7 : 1,
       }}>
-      <input ref={inputRef} type="file" accept=".json,application/json" style={{ display: 'none' }}
-        onChange={e => { if (e.target.files[0]) readFile(e.target.files[0]); }} />
+      <input ref={inputRef} type="file" accept=".json,.zip,application/json,application/zip" style={{ display: 'none' }}
+        onChange={e => { pickFile(e.target.files[0]); e.target.value = ''; }} />
       {file ? (
         <div style={{ color: G, fontSize: 13, fontWeight: 600 }}>
           ✓ {file}
@@ -122,6 +126,7 @@ function DropZone({ file, onFile, hint }) {
 
 export default function BotWizard() {
   const navigate = useNavigate();
+  const zipImportRef = useRef(null);
 
   // ── Step 1 — API key ──
   const [anthropicKey, setAnthropicKey] = useState('');
@@ -139,6 +144,7 @@ export default function BotWizard() {
   const [uploadKeystore, setUploadKeystore] = useState(null);
   const [uploadAddress, setUploadAddress]   = useState(null);
   const [uploadError, setUploadError]       = useState(null);
+  const [importingWallet, setImportingWallet] = useState(false);
 
   // ── Step 3 — Strategy ──
   const [preset, setPreset]         = useState('gto');
@@ -173,18 +179,57 @@ export default function BotWizard() {
     setGenerating(false);
   }
 
-  function handleUploadKeystore(name, text) {
+  function applyImportedConfig(config) {
+    if (!config || typeof config !== 'object') return;
+    if (config.persona && PRESET_DEFAULTS[config.persona]) {
+      applyPreset(config.persona);
+    } else if (config.persona === 'custom') {
+      setPreset('custom');
+    }
+    setSliders(prev => {
+      const next = { ...prev };
+      for (const { key } of SLIDERS) {
+        if (typeof config[key] === 'number') next[key] = config[key];
+      }
+      return next;
+    });
+    if (typeof config.stack_depth_adjustment === 'boolean') {
+      setStackDepth(config.stack_depth_adjustment);
+    }
+    if (config.deposit_usdc != null) setDepositUsdc(config.deposit_usdc);
+    if (config.max_buy_in_usdc != null) setMaxBuyIn(config.max_buy_in_usdc);
+    if (config.blind_interval != null) setBlindInterval(config.blind_interval);
+    if (config.anthropic_api_key) setAnthropicKey(String(config.anthropic_api_key));
+    if (config.custom_instructions) setCustomInstructions(String(config.custom_instructions));
+  }
+
+  async function handleWalletFile(file) {
     setUploadError(null);
     setUploadAddress(null);
+    setImportingWallet(true);
     try {
-      const parsed = JSON.parse(text);
-      if (!parsed.version || !parsed.crypto) throw new Error('Not a valid EIP-55 keystore');
-      setUploadKeystore(text);
-      setKeystoreName(name);
-      setUploadAddress(parsed.address ? '0x' + parsed.address.replace(/^0x/i, '') : null);
+      setWalletMode('upload');
+      setGenWallet(null);
+
+      if (file.name.toLowerCase().endsWith('.zip')) {
+        const bot = await parseBotZipFile(file);
+        setUploadKeystore(bot.keystoreJson);
+        setKeystoreName(bot.sourceName);
+        setUploadAddress(bot.address);
+        applyImportedConfig(bot.config);
+      } else {
+        const text = await file.text();
+        const { keystoreJson, address } = parseKeystoreJson(text);
+        setUploadKeystore(keystoreJson);
+        setKeystoreName(file.name);
+        setUploadAddress(address);
+      }
     } catch (e) {
-      setUploadError(e.message || 'Invalid keystore file');
+      setUploadKeystore(null);
+      setKeystoreName(null);
+      setUploadError(e.message || 'Invalid keystore or bot ZIP');
     }
+    setImportingWallet(false);
   }
 
   function applyPreset(p) {
@@ -218,6 +263,14 @@ export default function BotWizard() {
     setPackError(null);
     setPackaging(true);
     try {
+      try {
+        await verifyKeystorePassword(effectiveKeystoreJson, password);
+      } catch {
+        setPackError('Incorrect keystore password — check the password and try again.');
+        setPackaging(false);
+        return;
+      }
+
       const config = buildConfig();
       const addrSlug = (effectiveAddress || 'bot').slice(0, 10).toLowerCase();
 
@@ -282,9 +335,35 @@ export default function BotWizard() {
               </div>
             </div>
 
-            {/* Step 2 — Wallet */}
+            {/* Step 2 — Bot identity (wallet) */}
             <div style={{ background: '#0d1520', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: 24 }}>
-              <StepHeader num="02" title="Bot Wallet" done={step2Done} active={true} />
+              <StepHeader num="02" title="Bot" done={step2Done} active={true} />
+
+              <input
+                ref={zipImportRef}
+                type="file"
+                accept=".zip,application/zip"
+                style={{ display: 'none' }}
+                onChange={e => {
+                  const f = e.target.files?.[0];
+                  if (f) handleWalletFile(f);
+                  e.target.value = '';
+                }}
+              />
+              <button
+                type="button"
+                disabled={importingWallet}
+                onClick={() => zipImportRef.current?.click()}
+                style={{
+                  width: '100%', marginBottom: 16, padding: '10px 14px', borderRadius: 8,
+                  cursor: importingWallet ? 'wait' : 'pointer',
+                  background: 'rgba(168,85,247,0.08)', border: `1px solid ${VIOLET}40`,
+                  color: VIOLET, fontSize: 12, fontWeight: 700, letterSpacing: '0.08em',
+                  fontFamily: 'inherit',
+                }}
+              >
+                {importingWallet ? 'IMPORTING…' : '↻ IMPORT BOT ZIP (EDIT EXISTING)'}
+              </button>
 
               <div style={{ display: 'flex', gap: 4, marginBottom: 20, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: 4 }}>
                 {[['generate', 'Generate new'], ['upload', 'Upload existing']].map(([mode, label]) => (
@@ -360,8 +439,11 @@ export default function BotWizard() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <DropZone
                     file={keystoreName}
-                    onFile={handleUploadKeystore}
-                    hint="Drop your keystore JSON here or click to browse"
+                    onFile={handleWalletFile}
+                    busy={importingWallet}
+                    hint={importingWallet
+                      ? 'Reading file…'
+                      : 'Drop keystore .json or bot .zip (re-import to edit strategy)'}
                   />
                   {uploadError && <div style={{ color: '#f87171', fontSize: 12 }}>{uploadError}</div>}
                   {uploadAddress && (
@@ -452,7 +534,7 @@ export default function BotWizard() {
               cursor: canCreate ? 'pointer' : 'not-allowed', transition: 'all 0.2s',
               boxShadow: canCreate ? `0 0 40px ${G}25` : 'none',
             }}>
-              {packaging ? '⏳ PACKAGING…' : '↓ CREATE BOT & DOWNLOAD ZIP'}
+              {packaging ? '⏳ PACKAGING…' : '↓ SAVE BOT & DOWNLOAD ZIP'}
             </button>
 
             {!step2Done && (
