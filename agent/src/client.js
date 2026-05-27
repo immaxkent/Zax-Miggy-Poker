@@ -28,14 +28,28 @@ export function connectAndPlay({
   onStateUpdate,
 }) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn) => (value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
+    const done = finish(resolve);
+    const fail = finish(reject);
+
     const socket = io(socketUrl, {
       auth: { token, apiKey },
       transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
     });
 
     let latestState = null;
     let actionInFlight = false;
     let hasAutoStarted = false;
+    let connectedOnce = false;
 
     // Called after every gameState update AND after each action completes.
     // Ensures we never miss a turn due to the race where a new gameState
@@ -59,13 +73,14 @@ export function connectAndPlay({
     }
 
     socket.on('connect', () => {
+      connectedOnce = true;
       console.log(`[agent] Connected. Joining table usdc-${gameId}...`);
       const joinPayload = { gameId, ...(depositAmountUsdc != null ? { depositAmount: depositAmountUsdc } : {}) };
       socket.emit('joinUsdcTable', joinPayload, (ack) => {
         if (ack?.error) {
           console.error('[agent] Failed to join table:', ack.error);
           socket.disconnect();
-          reject(new Error(ack.error));
+          fail(new Error(ack.error));
         } else {
           console.log(`[agent] Seated at usdc-${gameId}`);
         }
@@ -110,17 +125,35 @@ export function connectAndPlay({
     socket.on('tableTerminated', () => {
       console.log('[agent] Table terminated.');
       socket.disconnect();
-      resolve();
+      done();
     });
 
     socket.on('disconnect', (reason) => {
       console.log(`[agent] Disconnected: ${reason}`);
-      resolve();
+      // Temporary transport issues are expected in production; let Socket.IO reconnect.
+      if (reason === 'io server disconnect') {
+        // Server explicitly disconnected this socket (e.g. auth/session issue).
+        // Reconnect manually to keep bot alive where possible.
+        console.log('[agent] Server disconnected socket; attempting reconnect...');
+        socket.connect();
+      }
+    });
+
+    socket.io.on('reconnect_attempt', (attempt) => {
+      console.log(`[agent] Reconnect attempt #${attempt}...`);
+    });
+    socket.io.on('reconnect', (attempt) => {
+      console.log(`[agent] Reconnected on attempt #${attempt}`);
+    });
+    socket.io.on('reconnect_error', (err) => {
+      console.warn('[agent] Reconnect error:', err?.message || err);
     });
 
     socket.on('connect_error', (err) => {
       console.error('[agent] Connection error:', err.message);
-      reject(err);
+      // Fail only if we never established an initial connection.
+      // After a successful session start, treat errors as transient and keep retrying.
+      if (!connectedOnce) fail(err);
     });
   });
 }
