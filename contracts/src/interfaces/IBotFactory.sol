@@ -13,6 +13,7 @@ interface IBotFactory {
     function implementation() external view returns (address);
     function botOf(address owner, uint256 nonce) external view returns (address);
     function botCount(address owner) external view returns (uint256);
+    function setArena(address arenaAddress) external;
 
     function deployBot(
         address owner,

@@ -25,13 +25,21 @@ interface IArena {
         uint256 chipsEnd;
         uint16 handsWon;
         bool winner;
+        uint256 preGameScore;
     }
 
     struct GameSettlement {
+        uint256 schemaVersion;
         uint256 gameId;
         Tier tier;
+        uint256 handCount;
+        uint256 startedAt;
+        uint256 endedAt;
+        bytes32 tableConfigHash;
         SettlementPlayer[] players;
         bytes32 handSummaryRoot;
+        uint256 nonce;
+        bytes32 resultHash;
     }
 
     event BotCreated(

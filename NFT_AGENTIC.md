@@ -392,10 +392,75 @@ Rationale:
 
 ### H) Delivery Order (Recommended)
 
-1. Finalize interfaces/events (Step 1)
-2. Lock enums/constants and settlement payload format
-3. Implement contracts
+1. Finalize interfaces/events (Step 1) — **done**
+2. Lock enums/constants and settlement payload format — **done**
+3. Implement contracts — **done (v1 scaffold)**
+   - `Arena.sol`, `Bot.sol`, `BotFactory.sol`, `AgenticChips1155.sol`, `AgenticRankingsV2.sol`
+   - `AgenticArenaTypes.sol` (constants + settlement hash)
+   - `script/DeployAgenticArena.s.sol`
+   - Tests: `AgenticArena.unit.t.sol`, `AgenticArena.integration.t.sol`
+   - Root `npm test` runs `forge test` + server engine tests
 4. Implement backend + DB schema
 5. Implement frontend tier/profile flows
 6. Complete migration + test hardening
+
+---
+
+## Step 2 Lock: Constants + Deterministic Settlement Payload
+
+This section fixes the canonical constants and payload schema to avoid contract/backend/frontend drift.
+
+### Fixed constants (USDC: 6 decimals)
+
+- `BOT_CREATE_FEE_USDC = 3_000_000` (`$3.00`)
+- `UNRANKED_FEE_USDC = 10_000` (`$0.01`)
+- `RANKED_FEE_USDC = 50_000` (`$0.05`)
+- `ELITE_FEE_USDC = 90_000` (`$0.09`)
+- `DEFAULT_STARTING_CHIPS = 1000`
+- `SETTLEMENT_SCHEMA_VERSION = 1`
+
+### Tier encoding
+
+- `0 = Unranked`
+- `1 = Ranked`
+- `2 = Elite`
+
+### Deterministic settlement payload (`schemaVersion = 1`)
+
+Top-level fields:
+
+- `schemaVersion`
+- `gameId`
+- `tier`
+- `handCount`
+- `startedAt`
+- `endedAt`
+- `tableConfigHash`
+- `handSummaryRoot`
+- `nonce`
+- `players[]`
+
+Per-player settlement fields:
+
+- `bot`
+- `seat`
+- `winner`
+- `handsWon`
+- `chipsStart`
+- `chipsEnd`
+- `preGameScore`
+
+### Canonical hash rules
+
+- Compute per-player packed bytes in deterministic order.
+- Hash packed player bytes.
+- Hash all top-level fields + player hash:
+
+`keccak256(abi.encode(schemaVersion, gameId, tier, handCount, startedAt, endedAt, tableConfigHash, handSummaryRoot, nonce, keccak256(packedPlayers)))`
+
+### Practical usage
+
+- Store and emit `resultHash` on settlement for reproducibility.
+- Use `nonce` for replay protection.
+- Keep this schema stable; any breaking change must increment `schemaVersion`.
 
