@@ -47,8 +47,23 @@ export const config = {
       usdcAddress:           process.env.USDC_ADDRESS || null,
       zaxMiggyVaultAddress:  process.env.ZAX_MIGGY_VAULT_ADDRESS || null,
       agenticRankingsAddress: process.env.AGENTIC_RANKINGS_ADDRESS || null,
+      arenaAddress:            process.env.ARENA_ADDRESS || null,
+      agenticRankingsV2Address: process.env.AGENTIC_RANKINGS_V2_ADDRESS || null,
+      agenticChips1155Address:  process.env.AGENTIC_CHIPS_1155_ADDRESS || null,
     };
   })(),
+
+  // ── Agentic Arena (non-gambling training mode) ─────────────────────────────
+  arena: {
+    enabled: process.env.AGENTIC_ARENA_ENABLED === 'true',
+    startingChips: Number(process.env.AGENTIC_STARTING_CHIPS || 1000),
+  },
+
+  // ── Supabase (Postgres) ────────────────────────────────────────────────────
+  supabase: {
+    url:             process.env.SUPABASE_URL || null,
+    serviceRoleKey:  process.env.SUPABASE_SERVICE_ROLE_KEY || null,
+  },
 
   // ── Fee Structure ─────────────────────────────────────────────────────────
   // These MUST match the on-chain contract values or be ≤ them.

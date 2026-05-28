@@ -395,6 +395,12 @@ Rationale:
 1. Finalize interfaces/events (Step 1) — **done**
 2. Lock enums/constants and settlement payload format — **done**
 3. Implement contracts — **done (v1 scaffold)**
+4. Implement backend + DB schema — **done (v1 scaffold)**
+   - Supabase migration: `supabase/migrations/001_agentic_arena.sql`
+   - Server store: `server/src/db/` (`supabase`, `memory` fallback)
+   - Arena lifecycle hooks + `joinArenaTable` socket
+   - REST: `/api/arena/*`, extended `/api/games`
+   - Tests: `server/test/arena-store.test.js`
    - `Arena.sol`, `Bot.sol`, `BotFactory.sol`, `AgenticChips1155.sol`, `AgenticRankingsV2.sol`
    - `AgenticArenaTypes.sol` (constants + settlement hash)
    - `script/DeployAgenticArena.s.sol`

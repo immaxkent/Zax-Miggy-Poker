@@ -40,6 +40,9 @@ import {
 } from './security.js';
 import { PokerTable } from './poker-engine.js';
 import { spawnAgent, killAgent, getAgentStatus, getAgentStatusByBotAddress, listAgents } from './agent-manager.js';
+import { initArenaPersistence, getArenaStoreBackend, isArenaTableId } from './db/arena-store.js';
+import { arenaStore } from './db/arena-store.js';
+import { onArenaTableJoin, onArenaGameOver, onArenaHandComplete, buildBotProfileResponse, tierName, tierFromPayload } from './arena/lifecycle.js';
 
 // ─── Validate env on boot ─────────────────────────────────────────────────────
 validateConfig();
@@ -98,6 +101,8 @@ app.get('/health', (_, res) => {
     signer:  getServerSignerAddress(),
     tables:  tables.size,
     players: players.size,
+    arenaEnabled: config.arena.enabled,
+    dbBackend: getArenaStoreBackend(),
   });
 });
 
@@ -219,18 +224,105 @@ app.get('/api/rankings', async (_, res) => {
 });
 
 // ── Public games list (no auth — used by agent discovery and spectator lobby) ──
-app.get('/api/games', (_, res) => {
-  const list = Array.from(tables.entries())
-    .filter(([id]) => id.startsWith('usdc-'))
-    .map(([id, t]) => ({
-      tableId:          id,
-      gameId:           Number(id.replace('usdc-', '')),
-      playerCount:      t.players.length,
-      maxSeats:         t.config.maxSeats,
-      stage:            t.stage,
-      depositAmountUsdc: t.depositAmountUsdc ?? null,
-    }));
-  res.json(list);
+app.get('/api/games', async (_, res) => {
+  try {
+    const legacy = Array.from(tables.entries())
+      .filter(([id]) => id.startsWith('usdc-'))
+      .map(([id, t]) => ({
+        mode:             'legacy',
+        tableId:          id,
+        gameId:           Number(id.replace('usdc-', '')),
+        playerCount:      t.players.length,
+        maxSeats:         t.config.maxSeats,
+        stage:            t.stage,
+        depositAmountUsdc: t.depositAmountUsdc ?? null,
+      }));
+
+    const arenaLive = Array.from(tables.entries())
+      .filter(([id]) => isArenaTableId(id))
+      .map(([id, t]) => ({
+        mode:        'arena',
+        tableId:     id,
+        gameId:      id.replace('arena-', ''),
+        tier:        t.arenaTier ?? 0,
+        tierName:    tierName(t.arenaTier ?? 0),
+        playerCount: t.players.length,
+        maxSeats:    t.config.maxSeats,
+        stage:       t.stage,
+      }));
+
+    let arenaDb = [];
+    if (config.arena.enabled) {
+      try {
+        arenaDb = await arenaStore.listGamesForApi();
+      } catch (e) {
+        console.warn('[arena] listGamesForApi:', e.message);
+      }
+    }
+
+    res.json({ legacy, arenaLive, arenaDb });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Agentic Arena REST (Supabase-backed) ───────────────────────────────────────
+app.get('/api/arena/status', (_, res) => {
+  res.json({
+    enabled: config.arena.enabled,
+    dbBackend: getArenaStoreBackend(),
+    contracts: {
+      arena: config.chain.arenaAddress,
+      rankingsV2: config.chain.agenticRankingsV2Address,
+      chips1155: config.chain.agenticChips1155Address,
+    },
+  });
+});
+
+app.post('/api/arena/bots', requireApiKey, async (req, res) => {
+  try {
+    const { botAddress, ownerAddress, metadataUri, configUri } = req.body;
+    if (!botAddress || !ownerAddress) {
+      return res.status(400).json({ error: 'botAddress and ownerAddress required' });
+    }
+    const bot = await arenaStore.upsertBot({
+      botAddress,
+      ownerAddress,
+      metadataUri,
+      configUri,
+    });
+    res.json({ ok: true, bot });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/arena/bots/:botAddress/profile', async (req, res) => {
+  try {
+    const data = await buildBotProfileResponse(req.params.botAddress);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/arena/games/open', async (req, res) => {
+  try {
+    const tier = req.query.tier != null ? Number(req.query.tier) : undefined;
+    const games = await arenaStore.listOpenGames({ tier });
+    res.json(games);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/arena/bots/:botAddress/history', requireApiKey, async (req, res) => {
+  try {
+    await arenaStore.saveHistoryExport(req.params.botAddress, req.body);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Agent management endpoints ────────────────────────────────────────────────
@@ -524,6 +616,97 @@ io.on('connection', (socket) => {
 
       // No auto-start: host must call startGame
     } catch (err) {
+      ack?.({ error: err.message });
+    }
+  });
+
+  // ── Join Agentic Arena table (tiered fees on-chain; no vault payout) ───────
+  socket.on('joinArenaTable', async ({ gameId, tier, botAddress, settingsHash }, ack) => {
+    try {
+      if (!config.arena.enabled) return ack?.({ error: 'Agentic arena disabled' });
+
+      const player = players.get(playerId);
+      if (!player) return ack?.({ error: 'NOT_AUTHENTICATED' });
+
+      const tableId = `arena-${gameId}`;
+      if (player.tableId && player.tableId !== tableId) {
+        return ack?.({ error: 'Already at a table. Leave first.' });
+      }
+      if (terminatedTables.has(tableId)) {
+        return ack?.({ error: 'Game has been settled and cannot be rejoined' });
+      }
+
+      const startingChips = config.arena.startingChips;
+      const joinBot = (botAddress || playerId).toLowerCase();
+
+      let table = tables.get(tableId);
+      if (!table) {
+        const arenaStake = {
+          name:          `Arena ${tierName(tier)} #${gameId}`,
+          smallBlind:    5,
+          bigBlind:      10,
+          minBuyIn:      200,
+          maxBuyIn:      1000,
+          maxSeats:      8,
+          minPlayers:    2,
+          blindInterval: 10,
+        };
+        table = new PokerTable({
+          ...arenaStake,
+          actionTimeoutSeconds: config.tables.actionTimeoutSeconds,
+          minPlayers: arenaStake.minPlayers,
+        }, tableId);
+        table.arenaTier = tierFromPayload(tier);
+        table.gameStarted = false;
+        table.hostId = joinBot;
+        tables.set(tableId, table);
+        console.log(`📋 Arena table created: ${tableId} tier=${table.arenaTier}`);
+
+        await onArenaTableJoin({
+          tableId,
+          gameId,
+          tier,
+          botAddress: joinBot,
+          ownerAddress: playerId,
+          settingsHash,
+          chipsStart: startingChips,
+        });
+      } else {
+        await onArenaTableJoin({
+          tableId,
+          gameId,
+          tier: table.arenaTier,
+          botAddress: joinBot,
+          ownerAddress: playerId,
+          settingsHash,
+          chipsStart: startingChips,
+        });
+      }
+
+      if (player.tableId === tableId) {
+        const seated = table.players.find(p => (p.id || '').toLowerCase() === playerId);
+        if (seated) {
+          seated.connected = true;
+          socket.join(tableId);
+          ack?.({ state: enrichState(table, table.toPublicState(playerId), playerId), healed: true });
+          return;
+        }
+      }
+
+      player.tableId = tableId;
+      const state = enrichState(
+        table,
+        table.sitDown({ id: playerId, address: playerId, chips: startingChips }),
+        playerId,
+      );
+      socket.join(tableId);
+      io.to(tableId).emit('playerJoined', { playerId, chips: startingChips });
+      ack?.({ state, mode: 'arena', tier: table.arenaTier });
+      emitGameStateToAllAtTable(io, table, 'arena player joined');
+      scheduleAllInRunout(io, table);
+      scheduleActionTimer(io, table);
+    } catch (err) {
+      console.error('[arena] joinArenaTable:', err.message);
       ack?.({ error: err.message });
     }
   });
@@ -913,6 +1096,53 @@ function handlePendingHandComplete(io, table, tableId) {
 
   issueWinnerVouchers(io, hc.results, tableId);
 
+  if (isArenaTableId(tableId)) {
+    onArenaHandComplete(tableId, hc.handNumber, {
+      results: hc.results,
+      community: hc.community,
+    }).catch(err => console.error('[arena] recordHand:', err.message));
+  }
+
+  // Auto-finish arena game (no vault payout)
+  if (isArenaTableId(tableId)) {
+    const alive = table.players.filter(p => p.chips > 0);
+    if (alive.length === 1) {
+      const winner = alive[0];
+      if (winner) {
+        const gameId = tableId.replace('arena-', '');
+        const handsPlayed = table.handNumber;
+        terminatedTables.add(tableId);
+        console.log(`🏆 Arena game ${tableId} over — winner: ${winner.id}`);
+
+        io.to(tableId).emit('gameOver', {
+          winner: winner.id,
+          gameId,
+          mode: 'arena',
+          summary: { handsPlayed, chipsWonInGame: winner.chips - (winner.startChips || 0) },
+        });
+
+        onArenaGameOver(table, tableId).catch(err =>
+          console.error(`[arena] finalize ${tableId}:`, err.message),
+        );
+
+        [...table.players].forEach(p => {
+          const pl = players.get(p.id);
+          if (pl) pl.tableId = null;
+          const s = findSocket(io, p.id);
+          if (s) {
+            s.leave(tableId);
+            s.emit('chipsUpdated', { chips: pl?.chips ?? 0 });
+          }
+        });
+        clearRunoutTimer(tableId);
+        clearActionTimer(tableId);
+        clearNextHandCountdown(tableId);
+        tables.delete(tableId);
+        return true;
+      }
+    }
+  }
+
   // Auto-finish USDC game when a player is busted (0 chips)
   if (tableId.startsWith('usdc-')) {
     const alive = table.players.filter(p => p.chips > 0);
@@ -1200,11 +1430,21 @@ spectateNsp.on('connection', (socket) => {
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
-httpServer.listen(config.server.port, () => {
-  console.log(`🚀 CryptoPoker server running on port ${config.server.port}`);
-  console.log(`🔑 Server signer: ${getServerSignerAddress()}`);
-  console.log(`⛓️  Chain ID: ${config.chain.chainId}`);
-  console.log(`💰 Buy-in fee: ${config.fees.buyInBps / 100}%  |  Winner fee: ${config.fees.winnerBps / 100}%`);
+async function boot() {
+  await initArenaPersistence();
+  httpServer.listen(config.server.port, () => {
+    console.log(`🚀 CryptoPoker server running on port ${config.server.port}`);
+    console.log(`🔑 Server signer: ${getServerSignerAddress()}`);
+    console.log(`⛓️  Chain ID: ${config.chain.chainId}`);
+    console.log(`💰 Buy-in fee: ${config.fees.buyInBps / 100}%  |  Winner fee: ${config.fees.winnerBps / 100}%`);
+    if (config.arena.enabled) {
+      console.log(`🤖 Agentic arena enabled — DB: ${getArenaStoreBackend()}`);
+    }
+  });
+}
+boot().catch(err => {
+  console.error(err);
+  process.exit(1);
 });
 
 setInterval(() => {

@@ -162,10 +162,13 @@ describe('Server Integration', () => {
   // ── GET /api/games ──────────────────────────────────────────────────────────
 
   describe('GET /api/games', () => {
-    it('returns an array', async () => {
+    it('returns legacy, arenaLive, and arenaDb arrays', async () => {
       const res = await apiGet('/api/games');
       assert.strictEqual(res.status, 200);
-      assert.ok(Array.isArray(res.json()));
+      const body = res.json();
+      assert.ok(Array.isArray(body.legacy));
+      assert.ok(Array.isArray(body.arenaLive));
+      assert.ok(Array.isArray(body.arenaDb));
     });
 
     it('requires no authentication', async () => {
@@ -174,14 +177,14 @@ describe('Server Integration', () => {
     });
 
     it('returns no usdc tables initially', async () => {
-      const list = (await apiGet('/api/games')).json();
-      const usdcGames = list.filter(g => g.tableId?.startsWith('usdc-'));
+      const { legacy } = (await apiGet('/api/games')).json();
+      const usdcGames = legacy.filter(g => g.tableId?.startsWith('usdc-'));
       assert.strictEqual(usdcGames.length, 0);
     });
 
-    it('each game entry has expected shape', async () => {
-      const list = (await apiGet('/api/games')).json();
-      assert.ok(Array.isArray(list));
+    it('each legacy game entry has expected shape', async () => {
+      const { legacy } = (await apiGet('/api/games')).json();
+      assert.ok(Array.isArray(legacy));
     });
   });
 

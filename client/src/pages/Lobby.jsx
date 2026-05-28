@@ -665,9 +665,15 @@ export default function Lobby({ token, address }) {
       try {
         const res = await fetch(`${SERVER_URL}/api/games`);
         if (!res.ok) return;
-        const list = await res.json();
+        const body = await res.json();
+        const list = Array.isArray(body)
+          ? body
+          : [...(body.legacy || []), ...(body.arenaLive || [])];
         const map = {};
-        list.forEach(g => { map[g.gameId] = g; });
+        list.forEach(g => {
+          const id = g.gameId ?? g.tableId;
+          if (id != null) map[id] = g;
+        });
         setLiveGames(map);
       } catch { /* server may not be reachable */ }
     }

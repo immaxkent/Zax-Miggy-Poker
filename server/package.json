@@ -7,9 +7,9 @@
     "start:server": "node src/server.js",
     "start:aws": "node src/start.js",
     "dev": "npx nodemon src/server.js",
-    "test": "node --test test/poker-engine.test.js",
+    "test": "node --test test/poker-engine.test.js test/arena-store.test.js",
     "test:integration": "node --test test/server-integration.test.js",
-    "test:all": "node --test test/poker-engine.test.js && node --test test/server-integration.test.js"
+    "test:all": "node --test test/poker-engine.test.js test/arena-store.test.js && node --test test/server-integration.test.js"
   },
   "dependencies": {
     "@aws-sdk/client-secrets-manager": "^3.700.0",
@@ -19,7 +19,8 @@
     "express": "^4.19.2",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
-    "socket.io": "^4.7.5"
+    "socket.io": "^4.7.5",
+    "@supabase/supabase-js": "^2.49.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.0",
