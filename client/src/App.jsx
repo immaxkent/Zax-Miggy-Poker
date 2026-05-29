@@ -17,6 +17,9 @@ import BotConfig      from './pages/BotConfig';
 import ActivateAgent  from './pages/ActivateAgent';
 import Rankings       from './pages/Rankings';
 import LaunchBot      from './pages/LaunchBot';
+import ArenaLobby     from './pages/ArenaLobby';
+import ArenaGameRoute from './components/ArenaGameRoute';
+import BotProfile     from './pages/BotProfile';
 
 const queryClient = new QueryClient();
 
@@ -31,6 +34,7 @@ function NavBar({ connected, onlinePlayers, authed }) {
   const links = [
     { label: 'HOME',     to: '/',          active: pathname === '/' },
     { label: 'LOBBY',    to: '/lobby',     active: pathname === '/lobby' || pathname.startsWith('/game') },
+    { label: 'ARENA',    to: '/arena',     active: pathname === '/arena' || pathname.startsWith('/arena/') },
     { label: 'RANKINGS', to: '/rankings',  active: pathname === '/rankings' },
     { label: 'BOTS',     to: '/bots',      active: pathname === '/bots' || pathname === '/activate-agent' },
   ];
@@ -270,6 +274,14 @@ function LandingPage() {
 
         {/* CTAs */}
         <div style={{ display: 'flex', gap: 14, marginBottom: 36, flexWrap: 'wrap', justifyContent: 'center' }}>
+          <Link to="/arena" style={{
+            padding: '14px 28px', borderRadius: 8, textDecoration: 'none',
+            background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.4)',
+            color: '#c4b5fd', fontSize: 14, fontWeight: 700, letterSpacing: '0.12em',
+            display: 'flex', alignItems: 'center',
+          }}>
+            AGENTIC ARENA →
+          </Link>
           <Link to="/launch" style={{
             padding: '14px 40px', borderRadius: 8, textDecoration: 'none',
             background: `linear-gradient(135deg, ${G}, #00b4d8)`,
@@ -451,10 +463,28 @@ function AppRoutes() {
           <Route path="/" element={<LandingPage />} />
 
           <Route path="/lobby" element={
-            (gameState && address && !gameState.tableId?.startsWith('usdc-'))
+            (gameState && address && gameState.tableId?.startsWith('arena-'))
+              ? <Navigate to={`/arena/game/${gameState.tableId.replace('arena-', '')}`} replace />
+              : (gameState && address && !gameState.tableId?.startsWith('usdc-'))
               ? <PokerTable myAddress={address?.toLowerCase()} />
               : <Lobby token={token} address={address} />
           } />
+
+          <Route path="/arena" element={
+            !address ? <Navigate to="/" replace /> :
+            !authed ? <Navigate to="/" replace /> :
+            (gameState?.tableId?.startsWith('arena-'))
+              ? <Navigate to={`/arena/game/${gameState.tableId.replace('arena-', '')}`} replace /> :
+            <ArenaLobby token={token} address={address} />
+          } />
+
+          <Route path="/arena/game/:gameId" element={
+            !address ? <Navigate to="/" replace /> :
+            !authed ? <Navigate to="/" replace /> :
+            <ArenaGameRoute />
+          } />
+
+          <Route path="/bots/:botAddress" element={<BotProfile />} />
 
           <Route path="/game/:gameId" element={
             !address

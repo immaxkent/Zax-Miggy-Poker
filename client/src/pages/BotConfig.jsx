@@ -1,7 +1,23 @@
 import { useState, useRef } from 'react';
 import { ethers } from 'ethers';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import { useWriteContract, useAccount } from 'wagmi';
+import { waitForTransactionReceipt } from '@wagmi/core';
+import { decodeEventLog } from 'viem';
 import JSZip from 'jszip';
+import {
+  SERVER_URL,
+  SERVER_API_KEY,
+  USDC_ADDRESS,
+  ERC20_ABI,
+  wagmiConfig,
+} from '../utils/web3Config';
+import {
+  ARENA_ADDRESS,
+  ARENA_ABI,
+  BOT_CREATE_FEE_RAW,
+  isArenaConfigured,
+} from '../utils/arenaConfig';
 import {
   parseKeystoreJson,
   parseBotZipFile,
@@ -124,9 +140,15 @@ function DropZone({ file, onFile, hint, busy }) {
   );
 }
 
-export default function BotWizard() {
+export default function BotWizard({ token, address: ownerAddress }) {
   const navigate = useNavigate();
   const zipImportRef = useRef(null);
+  const { address: connected } = useAccount();
+  const owner = (ownerAddress || connected || '').toLowerCase();
+  const { writeContractAsync } = useWriteContract();
+  const [onChainBot, setOnChainBot] = useState(null);
+  const [registering, setRegistering] = useState(false);
+  const [registerError, setRegisterError] = useState(null);
 
   // ── Step 1 — API key ──
   const [anthropicKey, setAnthropicKey] = useState('');
@@ -246,9 +268,74 @@ export default function BotWizard() {
       deposit_usdc:    Number(depositUsdc)   || 1,
       max_buy_in_usdc: Number(maxBuyIn)      || 1,
       blind_interval:  Number(blindInterval) || 10,
+      ...(onChainBot ? { on_chain_bot_address: onChainBot } : {}),
       ...(anthropicKey.trim() ? { anthropic_api_key: anthropicKey.trim() } : {}),
       ...(customInstructions.trim() ? { custom_instructions: customInstructions.trim() } : {}),
     };
+  }
+
+  async function handleRegisterOnChain() {
+    if (!isArenaConfigured() || !owner) return;
+    setRegisterError(null);
+    setRegistering(true);
+    try {
+      const { readContract } = await import('@wagmi/core');
+      const allowance = await readContract(wagmiConfig, {
+        address: USDC_ADDRESS,
+        abi: ERC20_ABI,
+        functionName: 'allowance',
+        args: [owner, ARENA_ADDRESS],
+      });
+      if (allowance < BOT_CREATE_FEE_RAW) {
+        const approveHash = await writeContractAsync({
+          address: USDC_ADDRESS,
+          abi: ERC20_ABI,
+          functionName: 'approve',
+          args: [ARENA_ADDRESS, BOT_CREATE_FEE_RAW],
+        });
+        await waitForTransactionReceipt(wagmiConfig, { hash: approveHash });
+      }
+
+      const hash = await writeContractAsync({
+        address: ARENA_ADDRESS,
+        abi: ARENA_ABI,
+        functionName: 'createBot',
+        args: [{ metadataURI: `bot://${effectiveAddress || 'local'}`, configURI: '' }],
+      });
+      const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+      let deployed = null;
+      for (const log of receipt.logs) {
+        try {
+          const ev = decodeEventLog({ abi: ARENA_ABI, data: log.data, topics: log.topics });
+          if (ev.eventName === 'BotCreated') {
+            deployed = ev.args.bot;
+            break;
+          }
+        } catch { /* skip */ }
+      }
+      if (!deployed) throw new Error('BotCreated event not found');
+      setOnChainBot(deployed.toLowerCase());
+
+      if (token) {
+        await fetch(`${SERVER_URL}/api/arena/bots`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Poker-Key': SERVER_API_KEY,
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            botAddress: deployed,
+            ownerAddress: owner,
+            metadataUri: `bot://${effectiveAddress || deployed}`,
+            configUri: '',
+          }),
+        });
+      }
+    } catch (e) {
+      setRegisterError(e.shortMessage || e.message || 'Registration failed');
+    }
+    setRegistering(false);
   }
 
   // ── Derived ──
@@ -277,6 +364,12 @@ export default function BotWizard() {
       const zip = new JSZip();
       zip.file('keystore.json', effectiveKeystoreJson);
       zip.file('config.json',   JSON.stringify(config, null, 2));
+      zip.file('history.json',  JSON.stringify([], null, 2));
+      zip.file('metrics.json', JSON.stringify({
+        persona: config.persona,
+        ...sliders,
+        on_chain_bot_address: onChainBot,
+      }, null, 2));
 
       const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
       const url  = URL.createObjectURL(blob);
@@ -543,9 +636,40 @@ export default function BotWizard() {
               </div>
             )}
 
+            {step2Done && isArenaConfigured() && (
+              <div style={{
+                padding: 16, borderRadius: 10, background: 'rgba(168,85,247,0.08)',
+                border: '1px solid rgba(168,85,247,0.25)', marginBottom: 12,
+              }}>
+                <div style={{ color: VIOLET, fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', marginBottom: 8 }}>
+                  AGENTIC ARENA ($3 USDC)
+                </div>
+                {onChainBot ? (
+                  <div style={{ color: G, fontSize: 12, fontFamily: 'Space Mono,monospace', marginBottom: 8 }}>
+                    ✓ On-chain bot {onChainBot.slice(0, 10)}…{onChainBot.slice(-6)}
+                    <Link to={`/bots/${onChainBot}`} style={{ color: G, marginLeft: 10, fontSize: 11 }}>Profile →</Link>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={registering || !owner}
+                    onClick={handleRegisterOnChain}
+                    style={{
+                      width: '100%', padding: '10px', borderRadius: 8, border: `1px solid ${VIOLET}50`,
+                      background: `${VIOLET}18`, color: VIOLET, fontSize: 11, fontWeight: 700,
+                      cursor: registering ? 'wait' : 'pointer', letterSpacing: '0.08em',
+                    }}
+                  >
+                    {registering ? 'REGISTERING…' : 'REGISTER BOT ON-CHAIN ($3)'}
+                  </button>
+                )}
+                {registerError && <div style={{ color: '#f87171', fontSize: 12, marginTop: 8 }}>{registerError}</div>}
+              </div>
+            )}
+
             {step2Done && (
               <div style={{ color: '#334155', fontSize: 11, textAlign: 'center', lineHeight: 1.6 }}>
-                Downloads a ZIP with your keystore + config. Then use <strong style={{ color: '#475569' }}>JOIN LOBBY WITH BOT</strong> on the home page to deploy it.
+                Downloads keystore, config, history, and metrics. Launch via <Link to="/arena" style={{ color: G }}>Arena</Link> or <strong style={{ color: '#475569' }}>Join with bot</strong>.
               </div>
             )}
           </div>

@@ -84,12 +84,18 @@ export function GameProvider({ children, authToken, walletAddress }) {
       setActionTimer(null);
       setNextHandCountdown(null);
     });
-    socket.on('gameOver', ({ winner, gameId, summary }) => {
+    socket.on('gameOver', ({ winner, gameId, summary, mode }) => {
       const isWinner = (winner || '').toLowerCase() === (walletAddress || '').toLowerCase();
-      setNotification({ type: isWinner ? 'win' : 'lose', message: isWinner ? '🏆 YOU WON! Settling on-chain…' : '💀 YOU LOST. Better luck next game.' });
+      const isArena = mode === 'arena';
+      setNotification({
+        type: isWinner ? 'win' : 'lose',
+        message: isArena
+          ? (isWinner ? '🏆 Training game complete — saved to profile' : 'Game over — stats updated')
+          : (isWinner ? '🏆 YOU WON! Settling on-chain…' : '💀 YOU LOST. Better luck next game.'),
+      });
       setActionTimer(null);
       setNextHandCountdown(null);
-      if (isWinner) {
+      if (isWinner && !isArena) {
         setVictory(v => ({
           ...(v || {}),
           winner,
@@ -169,6 +175,15 @@ export function GameProvider({ children, authToken, walletAddress }) {
     });
   }, []);
 
+  const joinArenaTable = useCallback(({ gameId, tier = 'unranked', botAddress } = {}) => {
+    return new Promise((resolve, reject) => {
+      socketRef.current?.emit('joinArenaTable', { gameId, tier, botAddress }, (res) => {
+        if (res?.error) reject(new Error(res.error));
+        else { setGameState(res.state); resolve(res.state); }
+      });
+    });
+  }, []);
+
   const leaveTable = useCallback(() => {
     return new Promise((resolve, reject) => {
       socketRef.current?.emit('leaveTable', {}, (res) => {
@@ -230,7 +245,7 @@ export function GameProvider({ children, authToken, walletAddress }) {
     <GameContext.Provider value={{
       connected, gameState, chips, notification,
       lastHand, victory, actionTimer, nextHandCountdown, tables, error, chatLog,
-      joinTable, joinUsdcTable, leaveTable, playerAction, startGame, terminateGame, notifyDeposit, refreshTableState, sendChat,
+      joinTable, joinUsdcTable, joinArenaTable, leaveTable, playerAction, startGame, terminateGame, notifyDeposit, refreshTableState, sendChat,
       dismissVictory,
       setChips,
     }}>
