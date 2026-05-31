@@ -14,24 +14,29 @@ describe('arena store (memory)', () => {
 
   it('createGame, join, finalize updates bot profile', async () => {
     const tableId = 'arena-42';
+    const botA = '0x00000000000000000000000000000000000000A1';
+    const botB = '0x00000000000000000000000000000000000000B2';
+    const ownerA = '0x0000000000000000000000000000000000000AA1';
+    const ownerB = '0x0000000000000000000000000000000000000BB2';
+
     await memoryArenaStore.upsertBot({
-      botAddress: '0xBotA',
-      ownerAddress: '0xOwnerA',
+      botAddress: botA,
+      ownerAddress: ownerA,
     });
     await memoryArenaStore.upsertBot({
-      botAddress: '0xBotB',
-      ownerAddress: '0xOwnerB',
+      botAddress: botB,
+      ownerAddress: ownerB,
     });
 
     await onArenaTableJoin({
       tableId,
       gameId: 42,
       tier: 'ranked',
-      botAddress: '0xBotA',
-      ownerAddress: '0xOwnerA',
+      botAddress: botA,
+      ownerAddress: ownerA,
       chipsStart: 1000,
     });
-    await memoryArenaStore.addParticipant({ tableId, botAddress: '0xBotB', chipsStart: 1000 });
+    await memoryArenaStore.addParticipant({ tableId, botAddress: botB, chipsStart: 1000 });
 
     const table = new PokerTable({
       name: 'Arena',
@@ -42,15 +47,15 @@ describe('arena store (memory)', () => {
       maxSeats: 6,
       minPlayers: 2,
     }, tableId);
-    table.sitDown({ id: '0xBotA', address: '0xBotA', chips: 1500 });
-    table.sitDown({ id: '0xBotB', address: '0xBotB', chips: 0 });
+    table.sitDown({ id: botA, address: botA, chips: 1500 });
+    table.sitDown({ id: botB, address: botB, chips: 0 });
     table.players[0].startChips = 1000;
     table.players[1].startChips = 1000;
     table.handNumber = 5;
 
     await onArenaGameOver(table, tableId);
 
-    const profile = await memoryArenaStore.getBotProfile('0xBotA');
+    const profile = await memoryArenaStore.getBotProfile(botA);
     assert.ok(profile);
     assert.equal(profile.games_played, 1);
     assert.equal(profile.games_won, 1);

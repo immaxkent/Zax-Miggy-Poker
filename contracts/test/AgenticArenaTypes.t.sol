@@ -40,11 +40,15 @@ contract AgenticArenaTypesTest is Test {
         });
     }
 
+    /// @dev Golden hash — must match server `hashArenaSettlement` (see arena-settlement.test.js).
+    bytes32 internal constant SAMPLE_SETTLEMENT_HASH =
+        0x178ac64e4871e08e48ba49d9b01efbaaa5dcd084ab3e85bf46c2a3cc2b855702;
+
     function test_hashSettlement_deterministic() public pure {
         bytes32 h1 = AgenticArenaTypes.hashSettlement(_samplePayload());
         bytes32 h2 = AgenticArenaTypes.hashSettlement(_samplePayload());
         assertEq(h1, h2);
-        assertTrue(h1 != bytes32(0));
+        assertEq(h1, SAMPLE_SETTLEMENT_HASH);
     }
 
     function test_hashSettlement_changesWhenPlayerOrderChanges() public pure {

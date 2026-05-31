@@ -7,7 +7,7 @@
     "start:server": "node src/server.js",
     "start:aws": "node src/start.js",
     "dev": "npx nodemon src/server.js",
-    "test": "node --test test/poker-engine.test.js test/arena-store.test.js",
+    "test": "node --test test/poker-engine.test.js test/arena-store.test.js test/arena-settlement.test.js",
     "test:integration": "node --test test/server-integration.test.js",
     "test:all": "node --test test/poker-engine.test.js test/arena-store.test.js && node --test test/server-integration.test.js"
   },

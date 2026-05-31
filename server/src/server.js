@@ -1094,7 +1094,9 @@ function handlePendingHandComplete(io, table, tableId) {
     });
   }
 
-  issueWinnerVouchers(io, hc.results, tableId);
+  if (!isArenaTableId(tableId)) {
+    issueWinnerVouchers(io, hc.results, tableId);
+  }
 
   if (isArenaTableId(tableId)) {
     onArenaHandComplete(tableId, hc.handNumber, {
@@ -1121,9 +1123,30 @@ function handlePendingHandComplete(io, table, tableId) {
           summary: { handsPlayed, chipsWonInGame: winner.chips - (winner.startChips || 0) },
         });
 
-        onArenaGameOver(table, tableId).catch(err =>
-          console.error(`[arena] finalize ${tableId}:`, err.message),
-        );
+        onArenaGameOver(table, tableId)
+          .then((out) => {
+            if (out?.chain?.txHash) {
+              const winnerSocket = findSocket(io, winner.id);
+              winnerSocket?.emit('arenaSettlement', {
+                gameId: Number(out.onChainGameId ?? gameId),
+                winner: winner.id,
+                status: 'mined',
+                txHash: out.chain.txHash,
+                resultHash: out.resultHash,
+                mode: 'arena',
+              });
+            } else if (out?.chain?.error) {
+              const winnerSocket = findSocket(io, winner.id);
+              winnerSocket?.emit('arenaSettlement', {
+                gameId: Number(gameId),
+                winner: winner.id,
+                status: 'failed',
+                error: out.chain.error,
+                mode: 'arena',
+              });
+            }
+          })
+          .catch(err => console.error(`[arena] finalize ${tableId}:`, err.message));
 
         [...table.players].forEach(p => {
           const pl = players.get(p.id);

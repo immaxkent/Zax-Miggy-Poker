@@ -1,4 +1,6 @@
+import config from '../config.js';
 import { arenaStore, isArenaTableId } from '../db/arena-store.js';
+import { buildArenaSettlement, submitArenaSettlement } from './settlement.js';
 
 const TIER_NAMES = ['unranked', 'ranked', 'elite'];
 
@@ -56,9 +58,13 @@ export async function onArenaHandComplete(tableId, handNumber, summary) {
 export async function onArenaGameOver(table, tableId) {
   if (!isArenaTableId(tableId)) return null;
 
+  const dbGame = await arenaStore.getGameByTableId(tableId);
+  const parsedId = Number(tableId.replace('arena-', ''));
+  const onChainGameId = dbGame?.on_chain_game_id ?? (Number.isFinite(parsedId) ? parsedId : null);
+
   const players = table.players.map((p, idx) => {
     const chipsEnd = p.chips;
-    const chipsStart = p.startChips ?? 1000;
+    const chipsStart = p.startChips ?? config.arena.startingChips;
     const winner = chipsEnd > 0 && table.players.filter(x => x.chips > 0).length === 1
       && table.players.find(x => x.chips > 0)?.id === p.id;
     return {
@@ -71,13 +77,32 @@ export async function onArenaGameOver(table, tableId) {
     };
   });
 
+  let resultHash = null;
+  let settlement = null;
+  if (onChainGameId != null && table.players.length >= 2) {
+    ({ resultHash, settlement } = buildArenaSettlement(table, dbGame, onChainGameId));
+  }
+
   const game = await arenaStore.finalizeGame({
     tableId,
-    resultHash: null,
+    resultHash: resultHash || null,
     players,
   });
 
-  return game;
+  let chain = null;
+  if (config.chain.arenaAddress && settlement) {
+    try {
+      chain = await submitArenaSettlement(settlement);
+      console.log(`✅ Arena settleGame(${onChainGameId}) mined: ${chain.txHash}`);
+    } catch (err) {
+      console.error(`[arena] settleGame(${onChainGameId}) failed:`, err.message);
+      chain = { error: err.message };
+    }
+  } else if (config.chain.arenaAddress && onChainGameId == null) {
+    console.warn(`[arena] ${tableId} has no on_chain_game_id — DB finalized without settleGame`);
+  }
+
+  return { game, resultHash, chain, onChainGameId };
 }
 
 export async function buildBotProfileResponse(botAddress) {
