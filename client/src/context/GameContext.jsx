@@ -124,6 +124,18 @@ export function GameProvider({ children, authToken, walletAddress }) {
         setNotification(null);
       }, 4000);
     });
+    socket.on('arenaSettlement', (payload) => {
+      if (!payload) return;
+      const isWinner = (payload.winner || '').toLowerCase() === (walletAddress || '').toLowerCase();
+      if (!isWinner) return;
+      setNotification({
+        type: payload.status === 'mined' ? 'win' : 'lose',
+        message: payload.status === 'mined'
+          ? '🏆 Arena game settled on-chain (chips burned, rankings updated)'
+          : `Arena settlement failed: ${payload.error || 'unknown'}`,
+      });
+      setTimeout(() => setNotification(null), 5000);
+    });
     socket.on('usdcSettlement', (payload) => {
       if (!payload) return;
       const isWinner = (payload.winner || '').toLowerCase() === (walletAddress || '').toLowerCase();
