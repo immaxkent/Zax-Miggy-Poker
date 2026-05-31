@@ -13,18 +13,25 @@ import "../src/AgenticRankingsV2.sol";
  * Env:
  *   USDC_ADDRESS          — USDC on target chain
  *   FEE_RECIPIENT         — treasury / fee recipient
- *   SETTLEMENT_SIGNER     — server signer for settleGame
+ *   SETTLEMENT_SIGNER     — server signer for settleGame (same as server SIGNER_PRIVATE_KEY address)
  *
- * Usage:
+ * Preferred: npm run deploy:arena:base-sepolia  (see docs/DEPLOY_AGENTIC_ARENA.md)
+ *
+ * Manual:
  *   cd contracts
  *   forge script script/DeployAgenticArena.s.sol:DeployAgenticArena \
- *     --rpc-url $BASE_RPC_URL --broadcast --account deployer
+ *     --rpc-url $BASE_SEPOLIA_RPC_URL --broadcast --account deployMeta --chain-id 84532
  */
 contract DeployAgenticArena is Script {
     function run() external {
         address usdcAddress = vm.envAddress("USDC_ADDRESS");
         address treasury = vm.envAddress("FEE_RECIPIENT");
         address settlementSigner = vm.envAddress("SETTLEMENT_SIGNER");
+
+        console.log("CHAIN_ID=", block.chainid);
+        console.log("USDC_ADDRESS=", usdcAddress);
+        console.log("FEE_RECIPIENT=", treasury);
+        console.log("SETTLEMENT_SIGNER=", settlementSigner);
 
         vm.startBroadcast();
 
@@ -47,9 +54,12 @@ contract DeployAgenticArena is Script {
 
         vm.stopBroadcast();
 
+        console.log("===========================================");
         console.log("AGENTIC_RANKINGS_V2_ADDRESS=", address(rankings));
         console.log("AGENTIC_CHIPS_1155_ADDRESS=", address(chips));
         console.log("BOT_FACTORY_ADDRESS=", address(factory));
         console.log("ARENA_ADDRESS=", address(arena));
+        console.log("===========================================");
+        console.log("Next: node scripts/wire-agentic-env.js <base-sepolia|base> <version>");
     }
 }
