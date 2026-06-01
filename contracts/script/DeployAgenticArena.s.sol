@@ -35,7 +35,8 @@ contract DeployAgenticArena is Script {
 
         vm.startBroadcast();
 
-        AgenticRankingsV2 rankings = new AgenticRankingsV2(address(0));
+        // Temporary updater (deployer); Arena becomes updater after deploy.
+        AgenticRankingsV2 rankings = new AgenticRankingsV2(msg.sender);
         AgenticChips1155 chips = new AgenticChips1155("https://agentic.zaxandmiggy/chips/{id}.json");
         BotFactory factory = new BotFactory(address(0));
 
