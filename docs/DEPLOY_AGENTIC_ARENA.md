@@ -10,20 +10,26 @@ Deploy `Arena`, `BotFactory`, `AgenticChips1155`, and `AgenticRankingsV2`, then 
 3. **USDC** on the deployer wallet for testing `createBot` / `joinGame` (not required for deploy itself).
 4. **Server signer** — one wallet whose private key lives in `server/.env` as `SIGNER_PRIVATE_KEY`. Its address is `SIGNER_ADDRESS` below (`0x91D4…` on EC2).
 
-### Deploy auth (pick one)
+### Deploy auth (cast keystore)
 
-**A — Private key in `contracts/.env` (recommended on a new Mac)**
+You already have local accounts if `cast wallet list` shows names like `deployMeta`, `deployer`, `deployKey`.
 
-```env
-DEPLOYER_PRIVATE_KEY=0x...   # never commit
+```bash
+npm run cast:list
+npm run cast:address          # prompts for password per account
 ```
 
-**B — Foundry keystore** (if you see `Mac Mismatch`, re-import on this machine)
+In `contracts/.env`:
+
+```env
+DEPLOY_ACCOUNT=deployMeta    # must match a name from cast wallet list
+# FOUNDRY_PASSWORD=...       # optional; else forge prompts when you deploy
+```
+
+**Mac Mismatch** means the keystore was encrypted on another machine. Re-import on this Mac:
 
 ```bash
 cast wallet import deployMeta --private-key 0xYOUR_KEY
-export FOUNDRY_PASSWORD=your-keystore-password
-export DEPLOY_ACCOUNT=deployMeta
 ```
 
 ## 1. Configure `contracts/.env`
@@ -48,10 +54,10 @@ BASESCAN_API_KEY=...   # for VERIFY=1
 
 ```bash
 cd "/path/to/Zax & Miggy Poker"
-npm run test:arena                # sanity check
-npm run deploy:arena:base-sepolia # writes versions/base-sepolia/1.0.1/agentic-deployment.json
-npm run wire:arena:base-sepolia   # client/.env + server/.env
-npm run wire:arena:ec2-sepolia    # EC2 server/.env + pm2 restart
+npm run test:arena
+npm run deploy:base-sepolia       # forge + cast account → versions/.../agentic-deployment.json
+npm run wire:base-sepolia
+npm run wire:base-sepolia:ec2
 ```
 
 This:
@@ -124,9 +130,9 @@ curl -s http://127.0.0.1:3001/api/arena/status
 When Sepolia testing is done:
 
 ```bash
-npm run deploy:arena:base
-npm run wire:arena:base
-npm run wire:arena:ec2-base
+npm run deploy:base-mainnet
+npm run wire:base-mainnet
+npm run wire:base-mainnet:ec2
 ```
 
 **USDC:** `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`  

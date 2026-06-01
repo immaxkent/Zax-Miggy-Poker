@@ -21,11 +21,11 @@ Written by `scripts/deploy-agentic-arena.js`:
 
 **Deploy + wire locally:**
 ```bash
-export DEPLOYER_PRIVATE_KEY=0x...   # deployer with ETH (or re-import cast wallet on this Mac)
-npm run deploy:arena:base-sepolia
-npm run deploy:arena:base
-npm run wire:arena:base-sepolia
-node scripts/wire-ec2-arena-env.js base-sepolia
+npm run cast:address              # confirm which cast account deploys
+npm run deploy:base-sepolia
+npm run deploy:base-mainnet
+npm run wire:base-sepolia
+npm run wire:base-sepolia:ec2
 ```
 
 **Point legacy vault at a version:**

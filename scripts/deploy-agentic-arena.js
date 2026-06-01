@@ -16,7 +16,8 @@
  *   FEE_RECIPIENT       — treasury for USDC fees
  *
  * Optional:
- *   DEPLOY_ACCOUNT=deployMeta   — forge keystore account (default deployMeta)
+ *   DEPLOY_ACCOUNT=deployMeta   — cast keystore name from `cast wallet list` (default deployMeta)
+ *   FOUNDRY_PASSWORD or ETH_PASSWORD — keystore password (else forge prompts interactively)
  *   BASE_SEPOLIA_RPC_URL        — custom RPC for Base Sepolia
  *   BASE_RPC_URL                — custom RPC for Base mainnet
  *   BASESCAN_API_KEY            — for --verify
@@ -116,21 +117,24 @@ function parseFromBroadcast(chainId) {
   };
 }
 
+function keystorePassword() {
+  return process.env.FOUNDRY_PASSWORD || process.env.ETH_PASSWORD || '';
+}
+
 function forgeAuthArgs() {
   const pk = (process.env.DEPLOYER_PRIVATE_KEY || '').trim();
   if (pk && /^0x[0-9a-fA-F]{64}$/i.test(pk)) {
-    return { mode: 'private-key', args: ['--private-key', pk] };
+    return { mode: 'private-key', interactive: false, args: ['--private-key', pk] };
   }
   const account = process.env.DEPLOY_ACCOUNT || 'deployMeta';
   const auth = ['--account', account];
-  if (process.env.FOUNDRY_PASSWORD) {
-    auth.push('--password', process.env.FOUNDRY_PASSWORD);
-  }
-  return { mode: `account:${account}`, args: auth };
+  const password = keystorePassword();
+  if (password) auth.push('--password', password);
+  return { mode: `cast:${account}`, interactive: !password, args: auth };
 }
 
 function runForgeScript(networkKey, net, envForForge) {
-  const { mode, args: authArgs } = forgeAuthArgs();
+  const { interactive, args: authArgs } = forgeAuthArgs();
   const rpc = net.rpc();
   const args = [
     'script',
@@ -147,20 +151,29 @@ function runForgeScript(networkKey, net, envForForge) {
 
   const childEnv = { ...process.env, ...envForForge };
 
+  const stdio = interactive ? 'inherit' : ['inherit', 'pipe', 'pipe'];
+
   return new Promise((resolve, reject) => {
     const proc = spawn('forge', args, {
       cwd: CONTRACTS_DIR,
-      stdio: ['inherit', 'pipe', 'pipe'],
+      stdio,
       env: childEnv,
     });
     let stdout = '';
     let stderr = '';
-    proc.stdout?.on('data', (d) => { stdout += d.toString(); process.stdout.write(d); });
-    proc.stderr?.on('data', (d) => { stderr += d.toString(); process.stderr.write(d); });
+    if (!interactive) {
+      proc.stdout?.on('data', (d) => { stdout += d.toString(); process.stdout.write(d); });
+      proc.stderr?.on('data', (d) => { stderr += d.toString(); process.stderr.write(d); });
+    }
     proc.on('close', (code) => {
       const full = stdout + '\n' + stderr;
-      if (code !== 0) reject(new Error(`forge script exited ${code}`));
-      else resolve(full);
+      if (code !== 0) {
+        const err = new Error(`forge script exited ${code}`);
+        err.output = full;
+        reject(err);
+        return;
+      }
+      resolve(full);
     });
   });
 }
@@ -237,8 +250,8 @@ async function main() {
   console.log('  Settlement signer:', settlementSigner);
   const auth = forgeAuthArgs();
   console.log('  Auth:', auth.mode);
-  if (auth.mode.startsWith('account:') && !process.env.FOUNDRY_PASSWORD && !process.env.DEPLOYER_PRIVATE_KEY) {
-    console.warn('  Tip: set DEPLOYER_PRIVATE_KEY or FOUNDRY_PASSWORD (keystore may prompt).');
+  if (auth.interactive) {
+    console.log('  (forge will prompt for your cast keystore password)');
   }
   console.log('');
 
@@ -275,6 +288,21 @@ async function main() {
 }
 
 main().catch((err) => {
+  const out = err.output || '';
   console.error(err.message || err);
+  if (out.includes('Mac Mismatch')) {
+    console.error(`
+Your cast keystore was created on another Mac. Re-import on this machine:
+
+  cast wallet import ${process.env.DEPLOY_ACCOUNT || 'deployMeta'} --private-key 0xYOUR_KEY
+
+Or set a different account in contracts/.env:
+
+  DEPLOY_ACCOUNT=deployer
+
+List accounts: npm run cast:list
+Check address:  npm run cast:address
+`);
+  }
   process.exit(1);
 });
