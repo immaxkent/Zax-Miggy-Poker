@@ -32,6 +32,14 @@ function shellQuote(s) {
   return `'${String(s).replace(/'/g, `'\\''`)}'`;
 }
 
+function sshRun(sshKey, sshHost, remoteScript) {
+  return execFileSync(
+    'ssh',
+    ['-i', sshKey, '-o', 'StrictHostKeyChecking=no', sshHost, remoteScript],
+    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
+  );
+}
+
 function main() {
   const network = process.argv[2];
   const version = process.argv[3];
@@ -58,25 +66,65 @@ function main() {
     AGENTIC_CHIPS_1155_ADDRESS: d.agenticChips1155Address,
   };
 
-  const remoteScript = Object.entries(updates)
+  const envScript = Object.entries(updates)
     .map(([k, v]) => {
       if (v == null || v === '') return '';
-      return `if grep -q '^${k}=' ${envPath} 2>/dev/null; then sed -i 's|^${k}=.*|${k}=${v}|' ${envPath}; else echo '${k}=${v}' >> ${envPath}; fi`;
+      const val = String(v).replace(/'/g, `'\\''`);
+      return `if grep -q '^${k}=' ${envPath} 2>/dev/null; then sed -i 's|^${k}=.*|${k}=${val}|' ${envPath}; else echo '${k}=${val}' >> ${envPath}; fi`;
     })
     .filter(Boolean)
     .join('\n');
 
-  const cmd = [
-    'ssh',
-    '-i', sshKey,
-    '-o', 'StrictHostKeyChecking=no',
-    sshHost,
-    `${remoteScript} && cd ${shellQuote(remoteDir)} && pm2 restart poker --update-env && curl -s http://127.0.0.1:3001/health`,
-  ];
+  const verifyScript = `echo '--- server/.env (arena) ---' && grep -E '^(CHAIN_ID|BASE_RPC_URL|USDC_ADDRESS|AGENTIC_ARENA|ARENA_|BOT_FACTORY|AGENTIC_)' ${envPath} || true`;
+
+  const restartScript = `cd ${shellQuote(remoteDir)} && pm2 restart poker --update-env`;
+
+  const healthScript = [
+    'sleep 2',
+    'H=""',
+    'for i in 1 2 3 4 5; do',
+    '  H=$(curl -sf http://127.0.0.1:3001/health) && break',
+    '  sleep 2',
+    'done',
+    'if [ -n "$H" ]; then echo "$H"; else echo "health check failed — server may still be starting"; fi',
+  ].join('\n');
 
   console.log(`Wiring EC2 for ${network} v${d.version} → ${d.arenaAddress}`);
-  const out = execFileSync(cmd[0], cmd.slice(1), { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-  console.log(out);
+
+  try {
+    sshRun(sshKey, sshHost, envScript);
+    console.log('✓ Updated server/.env on EC2');
+  } catch (err) {
+    console.error('Failed to update server/.env:', err.stderr || err.message);
+    process.exit(1);
+  }
+
+  try {
+    const pm2Out = sshRun(sshKey, sshHost, restartScript);
+    console.log(pm2Out.trim());
+    console.log('✓ pm2 restart poker');
+  } catch (err) {
+    console.error('pm2 restart failed:', err.stderr || err.message);
+    process.exit(1);
+  }
+
+  try {
+    const verify = sshRun(sshKey, sshHost, verifyScript);
+    console.log(verify.trim());
+  } catch (_) {
+    /* non-fatal */
+  }
+
+  try {
+    const health = sshRun(sshKey, sshHost, healthScript);
+    console.log('\nHealth:', health.trim());
+  } catch (err) {
+    console.warn('\n⚠️  Health check did not return JSON (env + pm2 were still applied).');
+    console.warn('   Try: curl -s https://zax-and-miggy-poker.ngrok.app/health');
+    console.warn(err.stderr || err.message || '');
+  }
+
+  console.log('\nDone. Copy VITE_* from client/.env to Vercel for Sepolia testing.');
 }
 
 main();

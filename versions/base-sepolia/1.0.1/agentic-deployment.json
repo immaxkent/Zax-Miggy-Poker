@@ -1,0 +1,13 @@
+{
+  "version": "1.0.1",
+  "network": "base-sepolia",
+  "chainId": 84532,
+  "usdcAddress": "0x036CbD53842c6846630281C1C3aD1868e8e7a34f",
+  "settlementSigner": "0x91D4A99A08942FCd28dE2f1dd3ac2b44fb8d26d0",
+  "feeRecipient": "0x8eE0E5d5FEfD3F0F6Ef9cb8C4bcb65B37f2484E6",
+  "agenticRankingsV2Address": "0xbdf0c44f9aa8f0547816c3040e3d0449e5f27459",
+  "agenticChips1155Address": "0x200a85d6342d6aaa6f26a37e0326cee1339a89e2",
+  "botFactoryAddress": "0x9bb9200ceca5392c693bcd6cfd06329502898c31",
+  "arenaAddress": "0x99202708a7d8daaa123c3b78e769c170e46ba830",
+  "deployedAt": "2026-06-01T23:02:03.642Z"
+}
