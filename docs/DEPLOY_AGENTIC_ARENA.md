@@ -5,14 +5,25 @@ Deploy `Arena`, `BotFactory`, `AgenticChips1155`, and `AgenticRankingsV2`, then 
 ## Prerequisites
 
 1. **Foundry** installed (`forge`, `cast`).
-2. **Deploy wallet** with ETH on the target chain (Base Sepolia faucet, then mainnet ETH on Base).
+2. **Deploy wallet** with ETH on the target chain (Base Sepolia faucet, then mainnet ETH on Base).  
+   Expected deployer: `0x538e5E9797fa86eE25e97289439b6A3AbA0165b0` (or your own).
 3. **USDC** on the deployer wallet for testing `createBot` / `joinGame` (not required for deploy itself).
-4. **Server signer** — one wallet whose private key lives in `server/.env` as `SIGNER_PRIVATE_KEY`. Its address is `SIGNER_ADDRESS` below.
+4. **Server signer** — one wallet whose private key lives in `server/.env` as `SIGNER_PRIVATE_KEY`. Its address is `SIGNER_ADDRESS` below (`0x91D4…` on EC2).
+
+### Deploy auth (pick one)
+
+**A — Private key in `contracts/.env` (recommended on a new Mac)**
+
+```env
+DEPLOYER_PRIVATE_KEY=0x...   # never commit
+```
+
+**B — Foundry keystore** (if you see `Mac Mismatch`, re-import on this machine)
 
 ```bash
-# One-time: import deploy key into Foundry keystore
-cast wallet import deployMeta --interactive
-# or: cast wallet import deployer --interactive
+cast wallet import deployMeta --private-key 0xYOUR_KEY
+export FOUNDRY_PASSWORD=your-keystore-password
+export DEPLOY_ACCOUNT=deployMeta
 ```
 
 ## 1. Configure `contracts/.env`
@@ -37,8 +48,10 @@ BASESCAN_API_KEY=...   # for VERIFY=1
 
 ```bash
 cd "/path/to/Zax & Miggy Poker"
-npm run test:contracts          # sanity check
-node scripts/deploy-agentic-arena.js base-sepolia 1.0.1
+npm run test:arena                # sanity check
+npm run deploy:arena:base-sepolia # writes versions/base-sepolia/1.0.1/agentic-deployment.json
+npm run wire:arena:base-sepolia   # client/.env + server/.env
+npm run wire:arena:ec2-sepolia    # EC2 server/.env + pm2 restart
 ```
 
 This:
@@ -111,8 +124,9 @@ curl -s http://127.0.0.1:3001/api/arena/status
 When Sepolia testing is done:
 
 ```bash
-node scripts/deploy-agentic-arena.js base 1.0.1
-node scripts/wire-agentic-env.js base 1.0.1
+npm run deploy:arena:base
+npm run wire:arena:base
+npm run wire:arena:ec2-base
 ```
 
 **USDC:** `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`  

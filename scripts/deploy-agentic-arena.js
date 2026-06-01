@@ -116,15 +116,28 @@ function parseFromBroadcast(chainId) {
   };
 }
 
-function runForgeScript(networkKey, net, envForForge) {
+function forgeAuthArgs() {
+  const pk = (process.env.DEPLOYER_PRIVATE_KEY || '').trim();
+  if (pk && /^0x[0-9a-fA-F]{64}$/i.test(pk)) {
+    return { mode: 'private-key', args: ['--private-key', pk] };
+  }
   const account = process.env.DEPLOY_ACCOUNT || 'deployMeta';
+  const auth = ['--account', account];
+  if (process.env.FOUNDRY_PASSWORD) {
+    auth.push('--password', process.env.FOUNDRY_PASSWORD);
+  }
+  return { mode: `account:${account}`, args: auth };
+}
+
+function runForgeScript(networkKey, net, envForForge) {
+  const { mode, args: authArgs } = forgeAuthArgs();
   const rpc = net.rpc();
   const args = [
     'script',
     'script/DeployAgenticArena.s.sol:DeployAgenticArena',
     '--rpc-url', rpc,
     '--broadcast',
-    '--account', account,
+    ...authArgs,
     '--chain-id', String(net.chainId),
   ];
 
@@ -222,7 +235,11 @@ async function main() {
   console.log('  USDC:', usdc);
   console.log('  Treasury:', feeRecipient);
   console.log('  Settlement signer:', settlementSigner);
-  console.log('  Account:', process.env.DEPLOY_ACCOUNT || 'deployMeta');
+  const auth = forgeAuthArgs();
+  console.log('  Auth:', auth.mode);
+  if (auth.mode.startsWith('account:') && !process.env.FOUNDRY_PASSWORD && !process.env.DEPLOYER_PRIVATE_KEY) {
+    console.warn('  Tip: set DEPLOYER_PRIVATE_KEY or FOUNDRY_PASSWORD (keystore may prompt).');
+  }
   console.log('');
 
   const output = await runForgeScript(networkKey, net, envForForge);

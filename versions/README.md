@@ -1,19 +1,34 @@
 # Deployment versions
 
-Deployed contract addresses per network and **version** (e.g. `1.0.1`), written by `scripts/deploy-and-save.js`.
+Contract addresses per network and **version** (e.g. `1.0.1`).
 
-Layout: `versions/<network>/<version>/deployment.json`  
-Example: `versions/anvil/1.0.1/deployment.json`
+## Legacy USDC vault
 
-- **anvil** — local dev (MockToken + PokerVault)
-- **base-sepolia** — Base Sepolia testnet (PokerVault; set TOKEN_ADDRESS in contracts/.env first)
-- **base** — Base mainnet (PokerVault; set TOKEN_ADDRESS in contracts/.env first)
+Written by `scripts/deploy-and-save.js` / `extract-and-save.js`:
 
-Each `deployment.json` contains `version`, `network`, `tokenAddress`, `vaultAddress`, and `deployedAt`.
+- `versions/<network>/<version>/deployment.json` — `vaultAddress`, `usdcAddress`
 
-**Point app at a version (updates client/.env and server/.env):**
+## Agentic Arena (v1.0.1)
+
+Written by `scripts/deploy-agentic-arena.js`:
+
+- `versions/<network>/<version>/agentic-deployment.json` — `arenaAddress`, `botFactoryAddress`, `agenticRankingsV2Address`, `agenticChips1155Address`
+
+| Network | Chain ID | USDC |
+|---------|----------|------|
+| `base-sepolia` | 84532 | `0x036CbD53842c6846630281C1C3aD1868e8e7a34f` |
+| `base` | 8453 | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
+
+**Deploy + wire locally:**
+```bash
+export DEPLOYER_PRIVATE_KEY=0x...   # deployer with ETH (or re-import cast wallet on this Mac)
+npm run deploy:arena:base-sepolia
+npm run deploy:arena:base
+npm run wire:arena:base-sepolia
+node scripts/wire-ec2-arena-env.js base-sepolia
+```
+
+**Point legacy vault at a version:**
 ```bash
 node scripts/use-version.js anvil 1.0.1
-node scripts/use-version.js anvil   # use latest version for that network
 ```
-Then restart the server and client to test on localhost.
