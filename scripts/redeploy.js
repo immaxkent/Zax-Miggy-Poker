@@ -113,7 +113,15 @@ function restartServer() {
     return;
   }
   console.log('Pulling latest + restarting game server on EC2...');
-  const remoteCmd = `cd ${REMOTE_DIR} && git pull && cd agent && npm install --omit=dev --silent && cd .. && pm2 restart poker`;
+  const remoteCmd = [
+    `cd ${REMOTE_DIR}`,
+    'git fetch origin',
+    'git checkout -- server/package.json server/package-lock.json server/src/db/supabase.js 2>/dev/null || true',
+    'git pull',
+    'cd server && npm install --omit=dev --silent',
+    'cd ../agent && npm install --omit=dev --silent',
+    'cd .. && pm2 restart poker --update-env',
+  ].join(' && ');
   try {
     execFileSync('ssh', ['-i', keyPath, '-o', 'StrictHostKeyChecking=no', SSH_HOST, remoteCmd], {
       encoding: 'utf8',
