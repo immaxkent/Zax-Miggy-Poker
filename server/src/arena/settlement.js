@@ -116,8 +116,9 @@ export function buildArenaSettlement(table, dbGame, onChainGameId) {
     const chipsStart = BigInt(p.startChips ?? config.arena.startingChips);
     const alive = table.players.filter((x) => (x.chips ?? 0) > 0);
     const isWinner = alive.length === 1 && alive[0].id === p.id;
+    const bot = (p.arenaBotAddress || p.id);
     return {
-      bot: p.id,
+      bot,
       chipsStart,
       chipsEnd,
       handsWon: Number(p.handsWonThisGame ?? handCount),

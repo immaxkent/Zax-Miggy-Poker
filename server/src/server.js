@@ -658,7 +658,8 @@ io.on('connection', (socket) => {
         }, tableId);
         table.arenaTier = tierFromPayload(tier);
         table.gameStarted = false;
-        table.hostId = joinBot;
+        // Host is the owner wallet (startGame checks playerId), not the bot contract.
+        table.hostId = (playerId || '').toLowerCase();
         tables.set(tableId, table);
         console.log(`📋 Arena table created: ${tableId} tier=${table.arenaTier}`);
 
@@ -694,11 +695,12 @@ io.on('connection', (socket) => {
       }
 
       player.tableId = tableId;
-      const state = enrichState(
-        table,
-        table.sitDown({ id: playerId, address: playerId, chips: startingChips }),
-        playerId,
-      );
+      const seat = table.sitDown({ id: playerId, address: playerId, chips: startingChips });
+      if (joinBot && joinBot !== (playerId || '').toLowerCase()) {
+        const seated = table.players.find((p) => (p.id || '').toLowerCase() === (playerId || '').toLowerCase());
+        if (seated) seated.arenaBotAddress = joinBot;
+      }
+      const state = enrichState(table, seat, playerId);
       socket.join(tableId);
       io.to(tableId).emit('playerJoined', { playerId, chips: startingChips });
       ack?.({ state, mode: 'arena', tier: table.arenaTier });

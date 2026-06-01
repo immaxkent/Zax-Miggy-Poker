@@ -60,9 +60,18 @@ function waitForHealth(baseUrl, timeoutMs = 15_000) {
  * @param {string} opts.anvilUrl                — JSON-RPC URL for anvil (e.g. http://127.0.0.1:18545)
  * @param {string} opts.vaultAddress            — deployed ZaxAndMiggyVault address
  * @param {string} opts.usdcAddress             — deployed MockUSDC address
- * @param {string} [opts.agenticRankingsAddress] — deployed AgenticRankings address (optional)
+ * @param {string} [opts.agenticRankingsAddress] — legacy AgenticRankings (optional)
+ * @param {object} [opts.arena] — { arenaAddress, botFactoryAddress, rankingsV2Address, chips1155Address }
  */
-export async function startServer({ port, signerPrivKey, anvilUrl, vaultAddress, usdcAddress, agenticRankingsAddress }) {
+export async function startServer({
+  port,
+  signerPrivKey,
+  anvilUrl,
+  vaultAddress,
+  usdcAddress,
+  agenticRankingsAddress,
+  arena,
+}) {
   const env = {
     ...process.env,
     PORT:                   String(port),
@@ -70,10 +79,17 @@ export async function startServer({ port, signerPrivKey, anvilUrl, vaultAddress,
     ALLOWED_ORIGINS:        '',            // allow all origins in test
     CHAIN_ID:               '31337',
     BASE_RPC_URL:           anvilUrl,
-    ZAX_MIGGY_VAULT_ADDRESS: vaultAddress,
+    ZAX_MIGGY_VAULT_ADDRESS: vaultAddress || '',
     USDC_ADDRESS:           usdcAddress,
     SIGNER_PRIVATE_KEY:     signerPrivKey,
     AGENTIC_RANKINGS_ADDRESS: agenticRankingsAddress || '',
+    AGENTIC_ARENA_ENABLED:  arena ? 'true' : 'false',
+    ARENA_ADDRESS:            arena?.arenaAddress || '',
+    BOT_FACTORY_ADDRESS:    arena?.botFactoryAddress || '',
+    AGENTIC_RANKINGS_V2_ADDRESS: arena?.rankingsV2Address || '',
+    AGENTIC_CHIPS_1155_ADDRESS: arena?.chips1155Address || '',
+    SUPABASE_URL:             '',
+    SUPABASE_SERVICE_ROLE_KEY: '',
     ...TEST_SECRETS,
   };
 

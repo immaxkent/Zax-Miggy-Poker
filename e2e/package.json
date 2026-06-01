@@ -6,6 +6,9 @@
   "description": "Level-4 E2E tests: real server + real anvil chain + real contracts",
   "scripts": {
     "test": "node --test tests/*.test.js",
+    "test:arena": "node --test tests/arena-lifecycle.test.js",
+    "test:legacy": "node --test tests/game-lifecycle.test.js tests/rankings.test.js tests/spectator.test.js tests/agent-launch.test.js",
+    "test:smoke:sepolia": "E2E_SMOKE_SEPOLIA=1 node --test tests/smoke-sepolia.test.js",
     "sim": "node bot-sim.js",
     "sim:ai": "node bot-sim.js --ai"
   },
